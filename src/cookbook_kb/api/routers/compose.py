@@ -50,6 +50,7 @@ from ...normalize.foods import FoodMatcher
 from ...normalize.pipeline import normalize_recipe
 from ...store import catalog
 from ...store.load import load_recipes
+from ...subagents.web_researcher import find_recipe_draft_online
 from ..deps import AUTH, get_conn
 
 router = APIRouter(dependencies=[AUTH])
@@ -325,23 +326,38 @@ def compose(body: ComposeIn, conn: sqlite3.Connection = Depends(get_conn)) -> Co
             sources=[url],
         )
 
-    # find requested but no URL — web-search find isn't wired yet (deferred).
-    warning = None
+    # find online by web search — explicit "find" intent with no URL. Parse-only,
+    # no persist: search → walk the top results through parse_recipe_from_url →
+    # first that parses becomes the draft (see subagents.web_researcher).
     if hint == "find" and not url:
-        warning = ("Free web-search find isn't wired yet; generated a recipe "
-                   "instead. Paste a recipe URL to import a specific one.")
-    elif hint == "auto" and not url:
-        warning = ("Web-search find isn't wired yet, so I generated a recipe. "
-                   "Paste a recipe URL to import a specific one instead.")
+        found = find_recipe_draft_online(conn, body.instruction)
+        if "error" not in found:
+            src = found["url"]
+            title = found.get("title") or "the recipe"
+            return ComposeResult(
+                draft=_normalized_to_draft(found["normalized"], sources=[src]),
+                message=f"Found “{title}” online. Edit it, then Save to add it.",
+                action="found",
+                sources=[src],
+            )
+        # search unavailable (e.g. no BRAVE_API_KEY) or nothing parseable → fall
+        # back to generate, and say why so the user isn't surprised.
+        draft = _generate_draft(conn, body.instruction, body.draft)
+        return ComposeResult(
+            draft=draft,
+            message="Couldn't find a good match online, so I drafted one. Refine it or Save to add it.",
+            action="generated",
+            warning=f"web search didn't return a usable recipe ({found['error']})",
+        )
 
-    # generate / refine.
+    # generate / refine (auto/generate, no URL).
     refining = bool(body.draft)
     draft = _generate_draft(conn, body.instruction, body.draft)
     action = "refined" if refining else "generated"
     message = ("Updated the draft. Keep refining or Save to add it."
                if refining else
                "Drafted a recipe. Refine it or Save to add it.")
-    return ComposeResult(draft=draft, message=message, action=action, warning=warning)
+    return ComposeResult(draft=draft, message=message, action=action)
 
 
 @router.post("/recipes/compose/save")

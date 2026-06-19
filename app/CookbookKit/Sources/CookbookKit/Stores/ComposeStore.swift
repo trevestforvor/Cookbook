@@ -39,10 +39,12 @@ public final class ComposeStore {
     /// (nil on the first turn) + `instruction` (+ optional `sourceURL`) and adopts
     /// the updated draft / message / warning. Records `lastError` on failure and
     /// leaves the existing draft intact so the user can retry.
-    public func compose(instruction: String, sourceURL: String? = nil) async {
+    public func compose(instruction: String, sourceURL: String? = nil,
+                        modeHint: String = "auto") async {
         isWorking = true
         defer { isWorking = false }
-        let input = ComposeIn(instruction: instruction, draft: draft, sourceURL: sourceURL)
+        let input = ComposeIn(instruction: instruction, draft: draft,
+                              sourceURL: sourceURL, modeHint: modeHint)
         do {
             let result = try await client.compose(input)
             draft = result.draft

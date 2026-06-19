@@ -18,7 +18,7 @@ import sqlite3
 import httpx
 
 from ..config import BRAVE_API_KEY, CHAT_MODEL
-from ..ingest.url import import_from_url
+from ..ingest.url import import_from_url, parse_recipe_from_url
 from ..llm.client import _client
 
 _BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
@@ -59,6 +59,43 @@ def _web_search(query: str, *, k: int = 5) -> list[dict]:
     results = (resp.json().get("web") or {}).get("results", [])
     return [{"title": r.get("title"), "url": r.get("url"), "snippet": r.get("description", "")}
             for r in results[:k]]
+
+
+def find_recipe_draft_online(conn: sqlite3.Connection, request: str, *, k: int = 6) -> dict:
+    """Search the web and return the FIRST parseable recipe as a normalized draft,
+    WITHOUT loading it — the no-persist sibling of ``run`` for the Phase-3 compose
+    builder ("find me a chili online" → an editable draft, nothing saved until Save).
+
+    Unlike ``run`` (a ReAct loop that imports/persists each find), this does a single
+    Brave search and walks the top ``k`` results through ``parse_recipe_from_url``
+    (fetch → extract → normalize, NO ``load_recipes``), returning the first that
+    parses as a real recipe. Listicles/category pages fail the ``is_recipe`` gate in
+    ``parse_recipe_from_url`` and are skipped.
+
+    Returns ``{"normalized", "title", "url", "candidates": [urls tried]}`` on success
+    or ``{"error": ..., "candidates": [...]}`` (returned, not raised) on failure —
+    including when ``BRAVE_API_KEY`` is unset, so the compose handler can fall back to
+    generate with a clear warning.
+    """
+    query = (request or "").strip()
+    if not query:
+        return {"error": "empty search query", "candidates": []}
+    try:
+        results = _web_search(f"{query} recipe", k=k)
+    except Exception as e:   # missing BRAVE_API_KEY, transport error, etc.
+        return {"error": f"web search unavailable: {e}", "candidates": []}
+
+    tried: list[str] = []
+    for r in results:
+        url = r.get("url")
+        if not url:
+            continue
+        tried.append(url)
+        parsed = parse_recipe_from_url(conn, url)
+        if "error" not in parsed:
+            return {"normalized": parsed["normalized"],
+                    "title": parsed.get("title"), "url": url, "candidates": tried}
+    return {"error": "no parseable recipe in the top results", "candidates": tried}
 
 
 def run(conn: sqlite3.Connection, request: str, *, max_iters: int = 8) -> str:

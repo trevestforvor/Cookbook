@@ -198,3 +198,16 @@ def test_compose_generate_returns_editable_draft(client: TestClient) -> None:
                 json={"instruction": "make it spicier", "draft": draft})
     v2 = client.get("/catalog/version").json()["version"]
     assert v1 == v2, "compose turns must not persist / bump the catalog"
+
+
+# ── web-search find: no-key graceful degradation (LLM-free, deterministic) ──────
+def test_find_recipe_draft_online_without_key_returns_error(monkeypatch):
+    """With BRAVE_API_KEY unset, the find helper returns an {error} blob (it never
+    raises) so the compose handler can fall back to generate with a warning."""
+    from cookbook_kb.subagents import web_researcher
+
+    monkeypatch.setattr(web_researcher, "BRAVE_API_KEY", "")
+    out = web_researcher.find_recipe_draft_online(None, "high protein chili")
+    assert "error" in out
+    assert "normalized" not in out
+    assert out.get("candidates") == []

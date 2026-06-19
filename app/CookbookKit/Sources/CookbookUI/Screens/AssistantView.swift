@@ -64,6 +64,8 @@ public struct AssistantView: View {
     /// Which add-path prompt is currently presented (URL entry); nil = none.
     @State private var addPrompt: AddPrompt?
     @State private var urlText: String = ""
+    /// The query entered in the "Find a recipe online" prompt.
+    @State private var findText: String = ""
     /// When true, the next composer send routes to `compose(instruction:)` (build a
     /// recipe) instead of `ask`. Set by the ＋ menu's "Describe a recipe"; the
     /// composer visibly switches to a build placeholder + send glyph so the intent
@@ -78,7 +80,13 @@ public struct AssistantView: View {
     /// The add-path prompts the ＋ control can raise.
     private enum AddPrompt: Identifiable {
         case url
-        var id: Int { 0 }
+        case find
+        var id: Int {
+            switch self {
+            case .url: return 0
+            case .find: return 1
+            }
+        }
     }
 
     /// - Parameters:
@@ -131,6 +139,15 @@ public struct AssistantView: View {
             Button("Import") { submitURL() }
         } message: {
             Text("Paste a recipe link. I'll fetch and parse it into an editable draft \u{2014} nothing is saved until you tap Save.")
+        }
+        // "Find a recipe online": describe what you want; I search the web, parse the
+        // best match into an editable draft (nothing saved until Save).
+        .alert("Find a recipe online", isPresented: findPromptBinding) {
+            TextField("e.g. high-protein turkey chili", text: $findText)
+            Button("Cancel", role: .cancel) { addPrompt = nil; findText = "" }
+            Button("Find") { submitFind() }
+        } message: {
+            Text("Describe the recipe. I'll search the web and parse the best match into an editable draft \u{2014} nothing is saved until you tap Save.")
         }
         #if os(iOS)
         // "Attach PDF": route to the EXISTING async ingest path, then point the cook
@@ -463,6 +480,12 @@ public struct AssistantView: View {
                 Label("Describe a recipe", systemImage: "pencil.and.outline")
             }
             Button {
+                findText = ""
+                addPrompt = .find
+            } label: {
+                Label("Find a recipe online", systemImage: "globe")
+            }
+            Button {
                 urlText = ""
                 addPrompt = .url
             } label: {
@@ -510,6 +533,14 @@ public struct AssistantView: View {
     private var urlPromptBinding: Binding<Bool> {
         Binding(
             get: { addPrompt == .url },
+            set: { if !$0 { addPrompt = nil } }
+        )
+    }
+
+    /// `Binding<Bool>` driving the "Find a recipe online" alert.
+    private var findPromptBinding: Binding<Bool> {
+        Binding(
+            get: { addPrompt == .find },
             set: { if !$0 { addPrompt = nil } }
         )
     }
@@ -566,12 +597,25 @@ public struct AssistantView: View {
 
     /// Start a NEW draft from a free-text build instruction (the chili example). The
     /// store keeps the running draft; the ``DraftRecipeCard`` renders it inline.
-    private func composeNewDraft(instruction: String, sourceURL: String? = nil) {
+    private func composeNewDraft(instruction: String, sourceURL: String? = nil,
+                                 modeHint: String = "auto") {
         clearConfirmation()
         composeTask?.cancel()
         composeTask = Task {
-            await composeStore.compose(instruction: instruction, sourceURL: sourceURL)
+            await composeStore.compose(instruction: instruction, sourceURL: sourceURL,
+                                       modeHint: modeHint)
         }
+    }
+
+    /// Submit the "Find a recipe online" query → a `mode_hint: "find"` compose turn.
+    /// The server web-searches, parses the best match into a draft (no persist), and
+    /// falls back to generate (with a warning) if nothing usable is found.
+    private func submitFind() {
+        let query = findText.trimmingCharacters(in: .whitespacesAndNewlines)
+        addPrompt = nil
+        findText = ""
+        guard !query.isEmpty else { return }
+        composeNewDraft(instruction: query, modeHint: "find")
     }
 
     /// Refine the current draft via a follow-up instruction (the card's Refine
