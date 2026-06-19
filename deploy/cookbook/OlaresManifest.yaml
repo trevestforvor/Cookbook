@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.3
-  versionName: '1.0.3'
+  version: 1.0.4
+  versionName: '1.0.4'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,12 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.3'
+  versionName: '1.0.4'
   upgradeDescription: |
+    v1.0.4 -- readiness-probe fix: the probe was GET / (the API 404s there), so
+    the pod never went Ready and sat at 1/2 forever. Pointed it at /health
+    (returns 200 {"ok":true}), matching the documented health contract. App was
+    healthy all along; only the probe path was wrong.
     v1.0.3 -- repins the image to sha-7516e95, the first build with the
     config-ROOT fix (the FastAPI image crash-looped on import because config.py
     resolved its root to the python lib dir, not /app, so config.yaml was never
