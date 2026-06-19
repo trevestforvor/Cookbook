@@ -87,6 +87,24 @@ def recent(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return [_public(r) for r in rows]
 
 
+def delete(conn: sqlite3.Connection, job_id: str) -> bool:
+    """Remove one import-history row. False if the job_id wasn't present."""
+    cur = conn.execute("DELETE FROM ingest_jobs WHERE job_id = ?", (job_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def clear(conn: sqlite3.Connection, *, only_terminal: bool = False) -> int:
+    """Clear import history. With only_terminal, keep queued/running jobs (so an
+    in-flight import isn't dropped from the list). Returns rows deleted."""
+    if only_terminal:
+        cur = conn.execute("DELETE FROM ingest_jobs WHERE status IN ('done', 'error')")
+    else:
+        cur = conn.execute("DELETE FROM ingest_jobs")
+    conn.commit()
+    return cur.rowcount
+
+
 def _public(row: sqlite3.Row) -> dict:
     d = dict(row)
     raw = d.pop("recipe_ids_json", None)

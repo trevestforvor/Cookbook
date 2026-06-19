@@ -4,6 +4,8 @@
   * POST /ingest/url    {url}                                   → {job_id, status}
   * GET  /ingest/{job_id}                                       → full job record
   * GET  /ingest                                                → recent jobs
+  * DELETE /ingest/{job_id}                                     → remove one history entry
+  * DELETE /ingest[?include_active=true]                        → clear history (terminal-only by default)
 
 Uploaded PDFs land in `data/uploads/` (created on demand — there's no existing
 uploads dir; `data/raw/` is the hardcoded corpus path, so we keep clear of it).
@@ -112,3 +114,30 @@ def list_jobs(request: Request,
     persisted = [r for r in job_rows.recent(conn) if r["job_id"] not in seen]
     jobs = sorted(live + persisted, key=lambda j: j["created_at"], reverse=True)
     return {"jobs": jobs}
+
+
+@router.delete("/ingest/{job_id}")
+def delete_job(job_id: str, request: Request,
+               conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    """Remove one import-history entry (live registry + durable row)."""
+    store = _store(request)
+    in_mem = store.get(job_id) is not None
+    store.delete(job_id)
+    in_db = job_rows.delete(conn, job_id)
+    if not (in_mem or in_db):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"no ingest job {job_id}")
+    return {"deleted": job_id}
+
+
+@router.delete("/ingest")
+def clear_jobs(request: Request,
+               include_active: bool = False,
+               conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    """Clear import history. By default only finished/errored jobs are removed so an
+    in-flight import isn't dropped; pass ?include_active=true to clear everything."""
+    only_terminal = not include_active
+    store = _store(request)
+    store.clear(only_terminal=only_terminal)
+    removed = job_rows.clear(conn, only_terminal=only_terminal)
+    return {"cleared": removed, "include_active": include_active}

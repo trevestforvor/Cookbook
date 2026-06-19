@@ -6,15 +6,19 @@ Every endpoint wraps an existing LAYER-1 function:
   * GET /recipes/{id}          → recipes.get_recipe (full {recipe,ingredients,steps})
   * GET /recipes/semantic      → recipes.semantic_search
   * GET /pantry/matches        → recipes.recipes_from_pantry (saved pantry)
+  * DELETE /recipes/{id}       → recipes_admin.delete_recipe (one recipe + cascade)
+  * DELETE /recipes?confirm=true → recipes_admin.wipe_library (empty the whole library)
+
+Both deletes bump the catalog version so the app re-syncs its mirror.
 """
 from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ...functions import recipes
-from ...store import catalog
+from ...store import catalog, recipes_admin
 from ..deps import AUTH, as_http, get_conn
 
 router = APIRouter(dependencies=[AUTH])
@@ -80,3 +84,33 @@ def pantry_matches(
 ) -> dict:
     # pantry omitted → recipes_from_pantry falls back to the saved pantry.
     return {"recipes": recipes.recipes_from_pantry(conn, max_missing=max_missing)}
+
+
+# ── WRITES: delete one / wipe all ──────────────────────────────────────────
+# Destructive; gated by the same bearer AUTH as the rest of the router. Both bump
+# the catalog version so the app notices its mirror is stale and re-syncs.
+
+@router.delete("/recipes/{recipe_id}")
+def delete_recipe(
+    recipe_id: int,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    if not recipes_admin.delete_recipe(conn, recipe_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"recipe {recipe_id} not found")
+    return {"deleted": recipe_id, "version": catalog.bump_version(conn),
+            "recipe_count": catalog.recipe_count(conn)}
+
+
+@router.delete("/recipes")
+def wipe_recipes(
+    confirm: bool = Query(default=False,
+                          description="must be true — guards against an accidental whole-library wipe"),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict:
+    if not confirm:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="pass ?confirm=true to wipe the entire recipe library")
+    removed = recipes_admin.wipe_library(conn)
+    return {"wiped": removed, "version": catalog.bump_version(conn),
+            "recipe_count": catalog.recipe_count(conn)}

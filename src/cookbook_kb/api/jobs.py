@@ -94,6 +94,20 @@ class JobStore:
             jobs = sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
         return [j.public() for j in jobs[:limit]]
 
+    def delete(self, job_id: str) -> None:
+        """Drop one job from the live registry (the durable row is removed separately)."""
+        with self._lock:
+            self._jobs.pop(job_id, None)
+
+    def clear(self, *, only_terminal: bool = False) -> None:
+        """Drop jobs from the live registry. only_terminal keeps queued/running ones."""
+        with self._lock:
+            if only_terminal:
+                self._jobs = {jid: j for jid, j in self._jobs.items()
+                              if j.status not in ("done", "error")}
+            else:
+                self._jobs.clear()
+
     # ── worker ───────────────────────────────────────────────────────────────
     def _run(self, job: Job) -> None:
         worker = self.WORKER
