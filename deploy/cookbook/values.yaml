@@ -8,9 +8,9 @@ userspace:
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
   # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
-  # semver tags). sha-7516e95 is the first image with the config-ROOT fix that
-  # stopped the CrashLoopBackOff. Bump this when CI publishes a newer image.
-  tag: "sha-7516e95"
+  # semver tags). sha-36c684e adds the delete/wipe endpoints (on top of the
+  # config-ROOT crash fix). Bump this when CI publishes a newer image.
+  tag: "sha-36c684e"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user
