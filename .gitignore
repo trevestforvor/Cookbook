@@ -13,6 +13,13 @@ data/raw/
 data/interim/
 data/quarantine/
 data/db/*.sqlite
+data/uploads/
+
+# Test / SwiftPM run artifacts (created in the CWD by test runs)
+/TemporaryDirectory.*
+/pytest-of-trevest/
+_Users_*.lock
+*.swiftpm.lock
 
 # Swift / Xcode build artifacts
 .build/
