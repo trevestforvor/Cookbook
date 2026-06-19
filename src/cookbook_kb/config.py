@@ -13,10 +13,41 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parents[2]  # …/weightloss
+def _resolve_root() -> Path:
+    """Base dir holding config.yaml and the data/ tree.
+
+    Source/dev layout: this file is ``src/cookbook_kb/config.py``, so
+    ``parents[2]`` is the repo root, with config.yaml + data/ beside it.
+
+    Installed layout (``pip install`` copies the package into site-packages):
+    ``parents[2]`` overshoots into the interpreter lib dir, so fall back to an
+    explicit ``COOKBOOK_ROOT`` (the container image sets ``/app``) or, failing
+    that, the working directory. parents[2] was what made the Olares image
+    crash on import with ``FileNotFoundError: .../config.yaml`` -- and it also
+    pushed the data/ paths off the persistent volume.
+    """
+    env = os.environ.get("COOKBOOK_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    src_root = Path(__file__).resolve().parents[2]
+    if (src_root / "config.yaml").is_file():
+        return src_root
+    return Path.cwd()
+
+
+ROOT = _resolve_root()
 
 load_dotenv(ROOT / ".env")
-CONFIG: dict = yaml.safe_load((ROOT / "config.yaml").read_text())
+
+# config.yaml: COOKBOOK_CONFIG (explicit path) wins, else ROOT/config.yaml.
+_CONFIG_PATH = Path(os.environ.get("COOKBOOK_CONFIG") or ROOT / "config.yaml").expanduser()
+try:
+    CONFIG: dict = yaml.safe_load(_CONFIG_PATH.read_text())
+except FileNotFoundError as exc:  # pragma: no cover - config is required
+    raise FileNotFoundError(
+        f"config.yaml not found at {_CONFIG_PATH}. Set COOKBOOK_ROOT to the dir "
+        "holding config.yaml + data/, or COOKBOOK_CONFIG to the file itself."
+    ) from exc
 
 _llm = CONFIG.get("llm", {})
 

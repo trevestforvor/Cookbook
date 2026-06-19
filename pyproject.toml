@@ -1,6 +1,6 @@
 [project]
 name = "cookbook-kb"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local weight-loss cookbook knowledge system"
 requires-python = ">=3.11"
 dependencies = [

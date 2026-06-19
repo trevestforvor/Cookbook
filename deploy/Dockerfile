@@ -36,9 +36,11 @@ COPY src ./src
 
 RUN pip install --no-cache-dir ".[api]"
 
-# config.py loads <repo-root>/config.yaml at import time (ROOT = parents[2] of
-# the package = /app here). It's required (read_text() is unconditional), so
-# ship it. Secrets still come from env, not this file.
+# config.py loads $COOKBOOK_ROOT/config.yaml at import time (COOKBOOK_ROOT=/app,
+# set below). It's required (read_text() is unconditional), so ship it here.
+# NOTE: `pip install .` copies the package into site-packages, so the old
+# parents[2] heuristic resolved to the interpreter lib dir, not /app -- hence
+# the explicit COOKBOOK_ROOT. Secrets still come from env, not this file.
 COPY config.yaml ./config.yaml
 
 # --- Seed DB ----------------------------------------------------------------
@@ -56,7 +58,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # Bind 0.0.0.0:8000; the app reads these env vars. COOKBOOK_DB_PATH points at
 # the persistent volume. Secrets (LITELLM_API_KEY, BRAVE_API_KEY,
 # COOKBOOK_API_TOKEN) are injected by the chart at runtime, never baked in.
-ENV COOKBOOK_API_HOST=0.0.0.0 \
+# COOKBOOK_ROOT anchors config.py's ROOT at /app (where config.yaml + the
+# persistent data/ volume live) regardless of where pip installed the package.
+ENV COOKBOOK_ROOT=/app \
+    COOKBOOK_API_HOST=0.0.0.0 \
     COOKBOOK_API_PORT=8000 \
     COOKBOOK_DB_PATH=/app/data/db/cookbook.sqlite \
     LITELLM_BASE_URL=https://litellm.trevestforvorolares.olares.com/v1
