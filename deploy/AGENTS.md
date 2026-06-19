@@ -30,6 +30,9 @@ This is a packaging boundary, not application code.
   `data/db/cookbook.sqlite`, which is gitignored and would be absent on a CI checkout.
   The entrypoint copies it into the volume only if empty. To refresh the seed
   intentionally: `cp data/db/cookbook.sqlite deploy/seed/cookbook.sqlite` and commit.
+  The seed must ship the recipe corpus + `ingested_sources` (the SHA dedup guard) but
+  NOT `ingest_jobs` — import history is runtime junk that would show as stale
+  done/error rows on a fresh install; clear it (`DELETE FROM ingest_jobs`) when refreshing.
 - **Public entrance + app-level auth.** The entrance is `authLevel: public` (a native
   client can't ride Olares SSO). The API self-gates with `COOKBOOK_API_TOKEN`; the
   client sends `Authorization: Bearer <token>`. `/health` is the unauthenticated probe.
