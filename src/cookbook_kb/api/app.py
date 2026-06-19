@@ -17,6 +17,7 @@ import os
 from fastapi import FastAPI
 
 from .jobs import JobStore
+from .routers import compose as compose_router
 from .routers import ingest as ingest_router
 from .routers import intelligence as intelligence_router
 from .routers import recipes as recipes_router
@@ -55,6 +56,9 @@ def create_app() -> FastAPI:
     app.include_router(state_router.router, tags=["state"])
     app.include_router(intelligence_router.router, tags=["intelligence"])
     app.include_router(ingest_router.router, tags=["ingest"])
+    # Phase 3 · conversational recipe builder. HTTP-only and bearer-gated; it is
+    # deliberately NOT in tools.RECIPE_TOOL_SCHEMAS, so the ReAct agent can't recurse.
+    app.include_router(compose_router.router, tags=["compose"])
     return app
 
 

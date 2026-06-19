@@ -14,6 +14,7 @@ public final class CookbookEnvironment {
     public let recipeStore: RecipeStore
     public let libraryStore: LibraryStore
     public let ingestionStore: IngestionStore
+    public let composeStore: ComposeStore
     public let container: ModelContainer
 
     /// The injected token store, retained so the Settings screen can write the
@@ -37,6 +38,9 @@ public final class CookbookEnvironment {
         self.recipeStore = RecipeStore(client: client, mirror: mirror, sync: sync)
         self.libraryStore = LibraryStore(client: client, mirror: mirror, sync: sync)
         self.ingestionStore = IngestionStore(client: client, mirror: mirror, sync: sync)
+        // Compose drafts are transient (never mirrored), so the store needs only the
+        // client + sync (the latter to re-sync the catalog after a save commits).
+        self.composeStore = ComposeStore(client: client, sync: sync)
     }
 
     // MARK: - Live server reconfiguration (Settings)
@@ -99,7 +103,9 @@ public final class CookbookEnvironment {
         preferences: Preferences = Preferences(),
         recentlyViewed: [RecentlyViewed] = [],
         cooked: [CookedEntry] = [],
-        ingestJobs: [IngestJob] = []
+        ingestJobs: [IngestJob] = [],
+        composeDraft: RecipeDraft? = nil,
+        composeMessage: String? = nil
     ) -> CookbookEnvironment {
         // A localhost base URL that is never contacted (stores are seeded directly).
         let configuration = APIConfiguration(
@@ -124,6 +130,10 @@ public final class CookbookEnvironment {
             cooked: cooked
         )
         environment.ingestionStore.seedForPreview(jobs: ingestJobs)
+        environment.composeStore.seedForPreview(
+            draft: composeDraft,
+            lastMessage: composeMessage
+        )
         return environment
     }
 }

@@ -104,14 +104,21 @@ def fetch_recipe_text(url: str, *, timeout: float = 20.0, max_chars: int = 8000)
     return _strip_html(doc)[:max_chars]  # cap to keep the LLM context bounded
 
 
-def import_from_url(conn: sqlite3.Connection, url: str, *,
-                    canon: Canonicalizer | None = None,
-                    matcher: FoodMatcher | None = None) -> dict:
-    """Fetch → extract → normalize → load ONE recipe from a URL.
+def parse_recipe_from_url(conn: sqlite3.Connection, url: str, *,
+                          canon: Canonicalizer | None = None,
+                          matcher: FoodMatcher | None = None) -> dict:
+    """Fetch → extract → normalize ONE recipe from a URL, WITHOUT loading it.
 
-    Returns {"recipe_id", "title", "url"} on success or {"error": ...}. Errors are
-    returned (not raised) so the agent loop can react to them in-band. The source
-    site's domain becomes the "book" so recipes from one site group together.
+    The parse-only sibling of ``import_from_url`` for the Phase-3 compose path:
+    it returns the SAME normalized dict ``import_from_url`` would hand to
+    ``load_recipes`` (so the FDC-compute nutrition fallback runs and a stated
+    panel is kept as ``source=stated``) but NEVER touches the catalog — no
+    ``load_recipes``, no FTS row, no canonical recipe. The compose handler turns
+    this normalized dict into a transient ``RecipeDraft`` the client edits until
+    an explicit ``/compose/save``.
+
+    Returns ``{"normalized": <dict>, "title": str, "url": str}`` on success or the
+    usual ``{"error": ...}`` blob (returned, not raised) on failure.
     """
     try:
         text = fetch_recipe_text(url)
@@ -123,8 +130,27 @@ def import_from_url(conn: sqlite3.Connection, url: str, *,
         return {"error": err or "no recipe found at that URL"}
 
     canon = canon or Canonicalizer()
-    matcher = matcher or FoodMatcher(conn)   # so URL imports also get the FDC compute fallback
+    matcher = matcher or FoodMatcher(conn)   # so the parsed draft also gets the FDC compute fallback
     normalized = normalize_recipe(raw.model_dump(), canon, matcher=matcher, conn=conn)
+    return {"normalized": normalized, "title": normalized.get("title"), "url": url}
+
+
+def import_from_url(conn: sqlite3.Connection, url: str, *,
+                    canon: Canonicalizer | None = None,
+                    matcher: FoodMatcher | None = None) -> dict:
+    """Fetch → extract → normalize → load ONE recipe from a URL.
+
+    Returns {"recipe_id", "title", "url"} on success or {"error": ...}. Errors are
+    returned (not raised) so the agent loop can react to them in-band. The source
+    site's domain becomes the "book" so recipes from one site group together.
+    """
+    canon = canon or Canonicalizer()
+    matcher = matcher or FoodMatcher(conn)   # so URL imports also get the FDC compute fallback
+    parsed = parse_recipe_from_url(conn, url, canon=canon, matcher=matcher)
+    if "error" in parsed:
+        return parsed
+
+    normalized = parsed["normalized"]
     site = urlparse(url).netloc or url
     ids = load_recipes(conn, {"title": site, "source_path": url}, [normalized])
     return {"recipe_id": ids[0], "title": normalized.get("title"), "url": url}

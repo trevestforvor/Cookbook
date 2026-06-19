@@ -368,6 +368,23 @@ public actor APIClient {
                        body: AskBody(message: message, maxIters: maxIters), as: AskResult.self)
     }
 
+    /// `POST /recipes/compose` — one turn of the conversational recipe builder.
+    /// Synchronous like `/ask` (a slow LLM call); the server is stateless, so the
+    /// caller resends the running `draft` + new `instruction` each turn. Returns the
+    /// updated draft + the assistant's reply. **Nothing persists** — compose never
+    /// touches the catalog until `composeSave(draft:)`.
+    public func compose(_ input: ComposeIn) async throws -> ComposeResult {
+        try await send(.post, path: "/recipes/compose", body: input, as: ComposeResult.self)
+    }
+
+    /// `POST /recipes/compose/save` — commit the agreed draft as a canonical recipe.
+    /// LLM-free; runs normalization + the catalog version bump server-side and
+    /// returns the new `recipeId` + authoritative catalog version/count.
+    public func composeSave(draft: RecipeDraft) async throws -> ComposeSaveResult {
+        try await send(.post, path: "/recipes/compose/save",
+                       body: ComposeSaveBody(draft: draft), as: ComposeSaveResult.self)
+    }
+
     /// `POST /meal-plan` — deterministic planner.
     public func generateMealPlan(_ body: MealPlanBody) async throws -> MealPlanResult {
         try await send(.post, path: "/meal-plan", body: body, as: MealPlanResult.self)

@@ -8,6 +8,60 @@ final class DTODecodingTests: XCTestCase {
         try decoder.decode(T.self, from: Data(json.utf8))
     }
 
+    // MARK: - Compose draft envelope (round-trips the server's nested shape)
+
+    func testComposeResultDecodesNestedDraftEnvelope() throws {
+        let json = """
+        {
+          "draft": {
+            "recipe": {"title": "Cocoa Chili", "servings": 4, "total_time_min": 45,
+                       "nutrition_source": null, "calories_kcal": null, "protein_g": null},
+            "ingredients": [
+              {"name": "ground turkey", "raw_text": "1 lb ground turkey", "optional": false, "step_number": 1},
+              {"name": "cocoa powder", "raw_text": "2 tbsp cocoa powder", "optional": false, "step_number": 2}
+            ],
+            "steps": [{"step_number": 1, "text": "Brown the turkey."},
+                      {"step_number": 2, "text": "Stir in cocoa and simmer."}],
+            "sources": []
+          },
+          "message": "Drafted a recipe.", "action": "generated", "sources": [],
+          "warning": "Web-search find isn't wired yet."
+        }
+        """
+        let result = try decode(ComposeResult.self, json)
+        XCTAssertEqual(result.action, "generated")
+        XCTAssertEqual(result.draft.title, "Cocoa Chili")        // flat accessor reads nested recipe
+        XCTAssertEqual(result.draft.totalMinutes, 45)
+        XCTAssertEqual(result.draft.servings, 4)
+        XCTAssertEqual(result.draft.ingredients.count, 2)
+        XCTAssertEqual(result.draft.ingredients.first?.name, "ground turkey")
+        XCTAssertEqual(result.draft.steps.count, 2)
+        XCTAssertTrue(result.draft.nutrition.isMissing)          // null panel — never zeros
+    }
+
+    /// The server's `_draft_to_raw` reads `draft["recipe"]` / `["ingredients"]` /
+    /// `["steps"]`. A flat encoding would make Save send an empty recipe → 400. This
+    /// pins the nested envelope on the encode side.
+    func testRecipeDraftReEncodesNestedRecipeEnvelopeServerExpects() throws {
+        let draftJSON = """
+        {"recipe": {"title": "Cocoa Chili", "servings": 4, "total_time_min": 45,
+                    "nutrition_source": null, "calories_kcal": null},
+         "ingredients": [{"name": "ground turkey", "raw_text": "1 lb ground turkey",
+                          "optional": false, "step_number": 1}],
+         "steps": [{"step_number": 1, "text": "Brown the turkey."}],
+         "sources": []}
+        """
+        let draft = try decode(RecipeDraft.self, draftJSON)
+        let data = try JSONEncoder().encode(draft)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let recipe = try XCTUnwrap(obj["recipe"] as? [String: Any],
+                                   "draft must nest a `recipe` object the server can read")
+        XCTAssertEqual(recipe["title"] as? String, "Cocoa Chili")
+        XCTAssertEqual(recipe["total_time_min"] as? Int, 45)
+        XCTAssertNotNil(obj["ingredients"] as? [Any])
+        XCTAssertNotNil(obj["steps"] as? [Any])
+    }
+
     // MARK: - Timestamps
 
     func testSQLiteTimestampParsesAsUTC() throws {

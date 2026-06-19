@@ -1,45 +1,85 @@
 import SwiftUI
 import CookbookKit
 import Network
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
+#if os(macOS)
+import AppKit
+#endif
 
-// MARK: - Assistant (conversational)
+// MARK: - Assistant (unified ask + ADD surface)
 
-/// The conversational assistant screen over `POST /ask`.
+/// The Assistant is the app's **unified ask + add** surface. It does two jobs in
+/// one chat:
 ///
-/// A scrolling transcript of user + assistant bubbles, a bottom input bar with a
-/// send button, and a "working…" status row while a reply is in flight. The
-/// backend agent is **single-shot** (`APIClient.ask(message:)` returns one
-/// `AskResult.answer` string with no server-side thread), so conversation context
-/// is maintained **client-side** as a simple local `@State` list of ``ChatMessage``s.
+/// 1. **Ask** the cookbook (`POST /ask`) — a single-shot agent that answers in
+///    prose; replies render as bubbles and recipe references become tappable chips.
+/// 2. **Add a recipe** (the IA decision: adding a recipe is OBVIOUS / first-class
+///    here). A persistent ＋/attach control offers three add paths — *describe a
+///    recipe*, *add from URL*, and *attach PDF* — and the placeholder invites it.
 ///
-/// Each request sends only the latest user message; the transcript exists purely
-/// so the cook can read the back-and-forth. (When the backend grows a real thread
-/// API, the only change here is what gets passed to `ask`.)
+/// ### Compose / draft / Save flow (the add path)
+/// "Describe a recipe" and "Add from URL" drive `ComposeStore.compose(...)`, which
+/// returns an **editable draft**. The draft renders inline as a ``DraftRecipeCard``
+/// in the transcript with a **Refine** field (a follow-up instruction with the
+/// running draft) and a prominent **Save** button. **Nothing persists until Save** —
+/// composing/refining never touches the catalog, search, or the local mirror. On
+/// Save (`ComposeStore.save()`) the store force-syncs the catalog; this view then
+/// navigates to the new recipe via ``onOpenRecipe`` and shows a brief confirmation.
 ///
-/// Assistant replies are scanned for trivially-detectable recipe references
-/// (`recipe #123`, `recipe 123`, `(id: 123)`, a bare `#123`). Any matches render
-/// as tappable chips beneath the bubble and call ``onOpenRecipe``; the prose is
-/// always shown verbatim regardless. Connectivity is watched best-effort with
-/// `NWPathMonitor`: when offline the input is disabled and an inline note appears.
+/// ### PDF uses the EXISTING ingest path (not a draft)
+/// "Attach PDF" routes to `IngestionStore.ingestPDF(...)` — the same async job the
+/// Import screen / Activity sheet already drive — and points the cook at the
+/// Activity sheet. We do **not** build a second PDF path or render PDFs as drafts.
 ///
-/// All reads go through `environment.client` directly inside a `.task`/`Task`
-/// (no store mutation), per the data-layer guardrails. Theme tokens only.
+/// ### Conversation context
+/// The Ask agent is single-shot (no server thread), so chat context lives
+/// client-side as a `@State` list of ``ChatMessage``s; each ask sends only the
+/// latest user message. The compose draft is a separate, single running item owned
+/// by `ComposeStore` and shown after the transcript.
+///
+/// Connectivity is watched best-effort with `NWPathMonitor`: when offline the input
+/// is disabled and an inline note appears. Reads bind only to stores (no
+/// `@Query`/`@Model`); Theme tokens only.
 public struct AssistantView: View {
     @Environment(CookbookEnvironment.self) private var environment
 
-    /// Invoked when the cook taps a detected recipe chip. Wired by the host app to
-    /// push the recipe detail; defaults to a no-op so previews and standalone use
-    /// compile without a navigator.
+    /// Invoked when the cook taps a detected recipe chip OR after a draft is saved.
+    /// Wired by the host app to push the recipe detail; defaults to a no-op so
+    /// previews and standalone use compile without a navigator.
     public let onOpenRecipe: (Int) -> Void
 
     @State private var messages: [ChatMessage]
     @State private var draft: String = ""
     @State private var isThinking = false
     @State private var sendTask: Task<Void, Never>?
+    @State private var composeTask: Task<Void, Never>?
 
     @State private var connectivity = ConnectivityModel()
     @State private var showingActivity = false
     @FocusState private var inputFocused: Bool
+
+    // Add-a-recipe affordances.
+    /// Which add-path prompt is currently presented (URL entry); nil = none.
+    @State private var addPrompt: AddPrompt?
+    @State private var urlText: String = ""
+    /// When true, the next composer send routes to `compose(instruction:)` (build a
+    /// recipe) instead of `ask`. Set by the ＋ menu's "Describe a recipe"; the
+    /// composer visibly switches to a build placeholder + send glyph so the intent
+    /// is never ambiguous. Cleared after the turn (or when the field is emptied).
+    @State private var composeMode = false
+    #if os(iOS)
+    @State private var showingPDFImporter = false
+    #endif
+    /// A brief, auto-dismissing confirmation after a successful save / PDF attach.
+    @State private var confirmation: String?
+
+    /// The add-path prompts the ＋ control can raise.
+    private enum AddPrompt: Identifiable {
+        case url
+        var id: Int { 0 }
+    }
 
     /// - Parameters:
     ///   - initialMessages: a seed transcript (used by previews; empty in production).
@@ -79,12 +119,37 @@ public struct AssistantView: View {
         .sheet(isPresented: $showingActivity) {
             ActivityView(onOpenRecipe: onOpenRecipe)
         }
+        // "Add from URL": a lightweight URL-entry prompt that kicks a compose turn.
+        .alert("Add from URL", isPresented: urlPromptBinding) {
+            TextField("https://\u{2026}", text: $urlText)
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .autocorrectionDisabled(true)
+                #endif
+            Button("Cancel", role: .cancel) { addPrompt = nil; urlText = "" }
+            Button("Import") { submitURL() }
+        } message: {
+            Text("Paste a recipe link. I'll fetch and parse it into an editable draft \u{2014} nothing is saved until you tap Save.")
+        }
+        #if os(iOS)
+        // "Attach PDF": route to the EXISTING async ingest path, then point the cook
+        // at the Activity sheet (we do NOT build a draft from a PDF).
+        .fileImporter(
+            isPresented: $showingPDFImporter,
+            allowedContentTypes: [.pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            handlePDFImport(result)
+        }
+        #endif
         .task {
             // Best-effort connectivity watch for the lifetime of the screen.
             await connectivity.start()
         }
         .onDisappear {
             sendTask?.cancel()
+            composeTask?.cancel()
             connectivity.stop()
         }
     }
@@ -131,7 +196,7 @@ public struct AssistantView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    if messages.isEmpty && !isThinking {
+                    if showsEmptyState {
                         emptyState
                             .padding(.top, Theme.Spacing.xxl)
                     }
@@ -145,6 +210,41 @@ public struct AssistantView: View {
                         ThinkingRow()
                             .id(Self.thinkingAnchorID)
                     }
+
+                    if composeStore.isWorking && composeStore.draft == nil {
+                        // First compose turn (no draft yet) — show the working row so
+                        // the slow LLM call isn't silent.
+                        ThinkingRow()
+                            .id(Self.draftAnchorID)
+                    }
+
+                    // Surface a compose/save failure inline. Covers both a failed
+                    // first turn (no draft) and a failed refine/save (draft intact).
+                    if let error = composeStore.lastError {
+                        composeErrorBanner(error)
+                            .transition(.opacity)
+                    }
+
+                    // The evolving recipe draft lives INLINE in the transcript (no new
+                    // NavigationStack — the Assistant has a known nested-nav conflict).
+                    if let draft = composeStore.draft {
+                        DraftRecipeCard(
+                            draft: draft,
+                            warning: composeStore.lastWarning,
+                            sources: composeStore.lastSources,
+                            isWorking: composeStore.isWorking,
+                            onRefine: refineDraft,
+                            onSave: saveDraft,
+                            onDiscard: discardDraft
+                        )
+                        .id(Self.draftAnchorID)
+                        .transition(.opacity)
+                    }
+
+                    if let confirmation {
+                        confirmationBanner(confirmation)
+                            .transition(.opacity)
+                    }
                 }
                 .padding(.horizontal, Theme.Spacing.lg)
                 .padding(.vertical, Theme.Spacing.lg)
@@ -153,15 +253,126 @@ public struct AssistantView: View {
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: messages.count) { _, _ in scrollToEnd(proxy) }
             .onChange(of: isThinking) { _, _ in scrollToEnd(proxy) }
+            .onChange(of: composeStore.draft) { _, _ in scrollToEnd(proxy) }
         }
     }
 
-    private var emptyState: some View {
-        EmptyState(
-            systemImage: "sparkles",
-            message: "Ask the cookbook anything",
-            subtitle: "\u{201C}High-protein dinners under 30 minutes?\u{201D} \u{00B7} \u{201C}What can I make with chickpeas and spinach?\u{201D}"
+    /// The compose store, read straight from the environment (binds to its
+    /// `@Observable` published state — no `@Query`/`@Model`).
+    private var composeStore: ComposeStore { environment.composeStore }
+
+    /// The teaching empty state shows only on a truly idle screen — no transcript,
+    /// no draft, nothing in flight, no compose error to surface.
+    private var showsEmptyState: Bool {
+        messages.isEmpty
+            && composeStore.draft == nil
+            && !isThinking
+            && !composeStore.isWorking
+            && composeStore.lastError == nil
+    }
+
+    private func confirmationBanner(_ text: String) -> some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.appAccent)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.appCaption.weight(.medium))
+                .foregroundStyle(Color.appTextPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                .fill(Color.appAccent.opacity(0.12))
         )
+        .accessibilityElement(children: .combine)
+    }
+
+    /// A destructive-styled banner for a failed compose/save turn. The store leaves
+    /// any existing draft intact on failure, so the cook can simply retry.
+    private func composeErrorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.appDestructive)
+                .accessibilityHidden(true)
+            Text("Couldn't build that just now. \(message)")
+                .font(.appCaption)
+                .foregroundStyle(Color.appTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                .fill(Color.appDestructive.opacity(0.10))
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: Theme.Spacing.lg) {
+            EmptyState(
+                systemImage: "sparkles",
+                message: "Ask \u{2014} or add a recipe",
+                subtitle: "Ask: \u{201C}High-protein dinners under 30 minutes?\u{201D} \u{00B7} \u{201C}What can I make with chickpeas and spinach?\u{201D}"
+            )
+
+            // Teach the three add paths alongside the ask examples.
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                Text("Add a recipe")
+                    .font(.appCaption.weight(.semibold))
+                    .foregroundStyle(Color.appTextSecondary)
+                addPathHint(
+                    icon: "pencil.and.outline",
+                    title: "Describe it",
+                    detail: "\u{201C}A chili with no onions \u{2014} onion powder ok \u{2014} and cocoa powder.\u{201D}"
+                )
+                addPathHint(
+                    icon: "link",
+                    title: "Add from URL",
+                    detail: "Paste a recipe link to fetch and parse it into a draft."
+                )
+                addPathHint(
+                    icon: "doc.fill",
+                    title: "Attach a PDF",
+                    detail: "Send a cookbook PDF to the importer; watch it in Activity."
+                )
+            }
+            .padding(Theme.Spacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                    .fill(Color.appSurface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                    .strokeBorder(Color.appBorder, lineWidth: Theme.Stroke.hairline)
+            )
+            .padding(.horizontal, Theme.Spacing.sm)
+        }
+    }
+
+    private func addPathHint(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.appAccent)
+                .frame(width: 22)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
+                Text(title)
+                    .font(.appBody.weight(.semibold))
+                    .foregroundStyle(Color.appTextPrimary)
+                Text(detail)
+                    .font(.appCaption)
+                    .foregroundStyle(Color.appTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Offline note
@@ -187,8 +398,10 @@ public struct AssistantView: View {
 
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: Theme.Spacing.sm) {
+            addMenu
+
             HStack(alignment: .bottom, spacing: Theme.Spacing.sm) {
-                TextField("Message the assistant\u{2026}", text: $draft, axis: .vertical)
+                TextField(composerPlaceholder, text: $draft, axis: .vertical)
                     .font(.appBody)
                     .foregroundStyle(Color.appTextPrimary)
                     .textFieldStyle(.plain)
@@ -197,6 +410,10 @@ public struct AssistantView: View {
                     .submitLabel(.send)
                     .disabled(!canType)
                     .onSubmit(send)
+                    .onChange(of: draft) { _, newValue in
+                        // Drop out of build mode if the cook clears the field.
+                        if newValue.isEmpty { composeMode = false }
+                    }
                     #if os(iOS)
                     .textInputAutocapitalization(.sentences)
                     #endif
@@ -209,11 +426,14 @@ public struct AssistantView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                    .strokeBorder(Color.appBorder, lineWidth: Theme.Stroke.hairline)
+                    .strokeBorder(
+                        composeMode ? Color.appAccent.opacity(0.6) : Color.appBorder,
+                        lineWidth: composeMode ? 1.5 : Theme.Stroke.hairline
+                    )
             )
 
             Button(action: send) {
-                Image(systemName: "arrow.up")
+                Image(systemName: composeMode ? "wand.and.stars" : "arrow.up")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Color.white)
                     .frame(width: 36, height: 36)
@@ -223,11 +443,47 @@ public struct AssistantView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
-            .accessibilityLabel("Send message")
+            .accessibilityLabel(composeMode ? "Build recipe draft" : "Send message")
         }
         .padding(.horizontal, Theme.Spacing.lg)
         .padding(.vertical, Theme.Spacing.md)
         .background(Color.appBackground)
+    }
+
+    /// The first-class ＋/attach control. Adding a recipe is OBVIOUS here: a single
+    /// menu surfaces all three add paths (describe / URL / PDF).
+    private var addMenu: some View {
+        Menu {
+            Button {
+                // "Describe a recipe": switch the composer into build mode and focus
+                // it. The next send routes to `compose(instruction:)`, not `ask`.
+                composeMode = true
+                inputFocused = true
+            } label: {
+                Label("Describe a recipe", systemImage: "pencil.and.outline")
+            }
+            Button {
+                urlText = ""
+                addPrompt = .url
+            } label: {
+                Label("Add from URL", systemImage: "link")
+            }
+            Button {
+                attachPDF()
+            } label: {
+                Label("Attach PDF", systemImage: "doc.fill")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color.appAccent)
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle().fill(Color.appAccent.opacity(0.12))
+                )
+        }
+        .disabled(!canType || composeStore.isWorking)
+        .accessibilityLabel("Add a recipe")
     }
 
     // MARK: Derived state
@@ -239,14 +495,40 @@ public struct AssistantView: View {
     private var canSend: Bool {
         canType
             && !isThinking
+            && !composeStore.isWorking
             && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    // MARK: Actions
+    /// The composer placeholder — switches to a build prompt while in compose mode.
+    private var composerPlaceholder: String {
+        composeMode
+            ? "Describe the recipe to build\u{2026}"
+            : "Ask, paste a link, or describe a recipe to add"
+    }
 
+    /// `Binding<Bool>` driving the "Add from URL" alert from the `addPrompt` enum.
+    private var urlPromptBinding: Binding<Bool> {
+        Binding(
+            get: { addPrompt == .url },
+            set: { if !$0 { addPrompt = nil } }
+        )
+    }
+
+    // MARK: Actions — ask / compose routing
+
+    /// The composer's primary send. In **build mode** it starts a compose turn
+    /// (`compose(instruction:)`); otherwise it asks the agent (`/ask`). Refinement of
+    /// an existing draft happens on the ``DraftRecipeCard`` itself, not here.
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend, !text.isEmpty else { return }
+
+        if composeMode {
+            composeMode = false
+            draft = ""
+            composeNewDraft(instruction: text)
+            return
+        }
 
         messages.append(ChatMessage(role: .user, text: text))
         draft = ""
@@ -280,16 +562,162 @@ public struct AssistantView: View {
         messages.append(message)
     }
 
+    // MARK: Actions — compose (build a recipe)
+
+    /// Start a NEW draft from a free-text build instruction (the chili example). The
+    /// store keeps the running draft; the ``DraftRecipeCard`` renders it inline.
+    private func composeNewDraft(instruction: String, sourceURL: String? = nil) {
+        clearConfirmation()
+        composeTask?.cancel()
+        composeTask = Task {
+            await composeStore.compose(instruction: instruction, sourceURL: sourceURL)
+        }
+    }
+
+    /// Refine the current draft via a follow-up instruction (the card's Refine
+    /// field). The store resends the running draft + this instruction.
+    private func refineDraft(_ instruction: String) {
+        clearConfirmation()
+        composeTask?.cancel()
+        composeTask = Task {
+            await composeStore.compose(instruction: instruction)
+        }
+    }
+
+    /// Commit the draft. On success the store force-syncs the catalog; we navigate to
+    /// the new recipe and show a brief confirmation. The draft is cleared by the
+    /// store on success (the conversation is done).
+    private func saveDraft() {
+        composeTask?.cancel()
+        composeTask = Task {
+            let recipeId = await composeStore.save()
+            guard !Task.isCancelled else { return }
+            if let recipeId {
+                showConfirmation("Saved to your library.")
+                onOpenRecipe(recipeId)
+            }
+            // On failure the store leaves the draft intact and records `lastError`,
+            // which the card surfaces via the next turn's warning/standard error UI.
+        }
+    }
+
+    /// Throw away the running draft (nothing was persisted).
+    private func discardDraft() {
+        composeStore.reset()
+        clearConfirmation()
+    }
+
+    // MARK: Actions — add from URL
+
+    private func submitURL() {
+        let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        addPrompt = nil
+        urlText = ""
+        // Only http(s) links are importable; surface feedback rather than silently
+        // dropping a bad entry (file:/ftp:/bare hostnames).
+        guard let scheme = URL(string: trimmed)?.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            appendAssistant(ChatMessage(
+                role: .assistant,
+                text: "That doesn't look like a web URL — paste a full recipe link starting with http:// or https://.",
+                isError: true))
+            return
+        }
+        // Compose contract: a source URL is a "find by URL" turn (parse-only, no
+        // persist) — the instruction primes the agent toward import.
+        composeNewDraft(instruction: "import this recipe", sourceURL: trimmed)
+    }
+
+    // MARK: Actions — attach PDF (EXISTING ingest path)
+
+    /// Attach a cookbook PDF. This routes to the existing async ingestion job (NOT a
+    /// draft) and points the cook at the Activity sheet to watch progress.
+    private func attachPDF() {
+        #if os(iOS)
+        showingPDFImporter = true
+        #elseif os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.pdf]
+        panel.prompt = "Import"
+        panel.message = "Choose a cookbook PDF to ingest"
+        if panel.runModal() == .OK, let url = panel.url {
+            startPDFIngest(fileURL: url)
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    private func handlePDFImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            startPDFIngest(fileURL: url, securityScoped: true)
+        case .failure:
+            break
+        }
+    }
+    #endif
+
+    /// Hand a PDF to the EXISTING `IngestionStore.ingestPDF(...)` path and surface
+    /// the Activity affordance. Reads bytes under a security-scoped grant when the
+    /// file came from the document picker (outside the app sandbox).
+    private func startPDFIngest(fileURL: URL, securityScoped: Bool = false) {
+        Task {
+            if securityScoped {
+                let scoped = fileURL.startAccessingSecurityScopedResource()
+                defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
+                if let data = try? Data(contentsOf: fileURL) {
+                    await environment.ingestionStore.ingestPDF(
+                        data: data, filename: fileURL.lastPathComponent)
+                } else {
+                    await environment.ingestionStore.ingestPDF(fileURL: fileURL)
+                }
+            } else {
+                await environment.ingestionStore.ingestPDF(fileURL: fileURL)
+            }
+            showConfirmation("Importing your PDF \u{2014} track it in Activity.")
+        }
+    }
+
+    // MARK: Confirmation (brief, auto-dismissing)
+
+    private func showConfirmation(_ text: String) {
+        withAnimation(.easeOut(duration: 0.2)) { confirmation = text }
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if confirmation == text { confirmation = nil }
+                }
+            }
+        }
+    }
+
+    private func clearConfirmation() {
+        if confirmation != nil { confirmation = nil }
+    }
+
+    // MARK: Scroll
+
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        let anchor: AnyHashable = isThinking
-            ? Self.thinkingAnchorID
-            : (messages.last?.id ?? Self.thinkingAnchorID)
+        let anchor: AnyHashable
+        if composeStore.draft != nil {
+            anchor = Self.draftAnchorID
+        } else if isThinking {
+            anchor = Self.thinkingAnchorID
+        } else {
+            anchor = messages.last?.id ?? Self.thinkingAnchorID
+        }
         withAnimation(.easeOut(duration: 0.2)) {
             proxy.scrollTo(anchor, anchor: .bottom)
         }
     }
 
     private static let thinkingAnchorID: AnyHashable = "assistant.thinking.anchor"
+    private static let draftAnchorID: AnyHashable = "assistant.draft.anchor"
 }
 
 // MARK: - Message model
@@ -605,4 +1033,32 @@ private enum AssistantPreviewData {
     AssistantView()
         .environment(CookbookEnvironment.preview())
         .preferredColorScheme(.light)
+}
+
+#Preview("Assistant — Draft inline") {
+    AssistantView(initialMessages: [
+        ChatMessage(role: .user, text: "Build me a chili with no onions but onion powder is ok, and cocoa powder."),
+    ])
+    .environment(CookbookEnvironment.preview(
+        composeDraft: RecipeDraft(
+            title: "Smoky Black Bean Chili (no onions)",
+            description: "Onion powder + cocoa stand in for fresh onions.",
+            servings: 4,
+            totalMinutes: 40,
+            difficulty: .easy,
+            ingredients: [
+                Ingredient(name: "black beans", quantity: 2, unit: "can", rawText: "2 cans black beans, drained"),
+                Ingredient(name: "onion powder", quantity: 1, unit: "tbsp", rawText: "1 tbsp onion powder"),
+                Ingredient(name: "cocoa powder", quantity: 1, unit: "tbsp", rawText: "1 tbsp unsweetened cocoa powder"),
+            ],
+            steps: [
+                Step(number: 1, text: "Toast the spices in oil until fragrant."),
+                Step(number: 2, text: "Add tomatoes, beans, and cocoa; simmer 25 minutes."),
+            ],
+            tags: ["vegetarian"],
+            nutrition: nil
+        ),
+        composeMessage: "Here's a draft. Want any changes?"
+    ))
+    .preferredColorScheme(.light)
 }
