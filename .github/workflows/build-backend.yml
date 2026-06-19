@@ -64,6 +64,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # A `docker build` never imports the app, so a runtime-only crash (e.g. a
+      # missing shared lib for a wheel) ships a green build that crash-loops the pod.
+      # Actually RUN the image and import the app so CI fails loudly instead.
+      - name: Smoke test — the image starts
+        run: |
+          echo "Importing the app inside the freshly built image…"
+          docker run --rm "${IMAGE}:latest" \
+            python -c "import cookbook_kb.api.app; print('container import OK')"
+
       - name: Reminder
         run: |
           echo "Pushed ${{ steps.tags.outputs.tags }}"
