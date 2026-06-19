@@ -1,0 +1,44 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#FFA94D"/>
+      <stop offset="1" stop-color="#FF5E62"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded-square app tile -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- chef's hat -->
+  <g fill="#FFFFFF">
+    <!-- puffy top -->
+    <circle cx="206" cy="178" r="40"/>
+    <circle cx="256" cy="160" r="48"/>
+    <circle cx="306" cy="178" r="40"/>
+    <rect x="166" y="168" width="180" height="60" rx="30"/>
+    <!-- band -->
+    <rect x="196" y="214" width="120" height="58" rx="12"/>
+  </g>
+  <!-- band pleats -->
+  <g stroke="#FF7A4D" stroke-width="7" stroke-linecap="round">
+    <line x1="226" y1="226" x2="226" y2="260"/>
+    <line x1="256" y1="226" x2="256" y2="260"/>
+    <line x1="286" y1="226" x2="286" y2="260"/>
+  </g>
+
+  <!-- open cookbook -->
+  <g>
+    <!-- pages -->
+    <path d="M256 318 C 206 298, 132 300, 104 314 L 104 392 C 140 376, 212 376, 256 396 Z" fill="#FFFFFF"/>
+    <path d="M256 318 C 306 298, 380 300, 408 314 L 408 392 C 372 376, 300 376, 256 396 Z" fill="#FFFFFF"/>
+    <!-- center spine -->
+    <path d="M256 318 L 256 396" stroke="#FF7A4D" stroke-width="8" stroke-linecap="round"/>
+    <!-- text lines -->
+    <g stroke="#FFC9A3" stroke-width="6" stroke-linecap="round">
+      <line x1="138" y1="332" x2="224" y2="338"/>
+      <line x1="138" y1="352" x2="224" y2="358"/>
+      <line x1="288" y1="338" x2="374" y2="332"/>
+      <line x1="288" y1="358" x2="374" y2="352"/>
+    </g>
+  </g>
+</svg>

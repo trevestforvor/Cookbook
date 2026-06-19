@@ -1,0 +1,26 @@
+metadata:
+  title: Cookbook KB
+  description: Recipe knowledge base API -- ingest, search, and serve recipes
+spec:
+  fullDescription: |
+    Cookbook KB is the backend for the native Cookbook app (iPhone, iPad, Mac).
+    It is a self-hosted FastAPI service that ingests recipes (from PDFs, including
+    scanned cookbooks via OCR, and from URLs), normalizes ingredients and
+    nutrition, and serves a searchable recipe knowledge base over HTTP.
+
+    - FastAPI HTTP API on port 8000.
+    - PDF / scanned-cookbook ingestion (tesseract OCR + poppler + OpenCV).
+    - URL recipe ingestion.
+    - SQLite knowledge base persisted to the app's data volume, so ingested
+      recipes and uploaded PDFs survive restarts and upgrades. Ships with a
+      seed database so the API is useful immediately on first install.
+    - LLM-assisted parsing via an OpenAI-compatible proxy (LiteLLM) over public
+      HTTPS, plus optional web search (Brave).
+
+    Authentication: this entrance is public (no Olares SSO) because the native
+    app talks to it directly. Set COOKBOOK_API_TOKEN to a strong secret; the
+    API requires that bearer token on every request.
+
+    Configuration: set the secret values (LITELLM_API_KEY, BRAVE_API_KEY,
+    COOKBOOK_API_TOKEN) before use. LITELLM_BASE_URL defaults to the LiteLLM
+    proxy and can be overridden.

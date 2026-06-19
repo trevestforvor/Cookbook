@@ -1,0 +1,23 @@
+metadata:
+  title: Cookbook KB
+  description: 食谱知识库 API -- 导入、搜索并提供食谱
+spec:
+  fullDescription: |
+    Cookbook KB 是原生 Cookbook 应用（iPhone、iPad、Mac）的后端。它是一个
+    自托管的 FastAPI 服务，可导入食谱（来自 PDF，包括通过 OCR 处理的扫描版
+    食谱，以及来自 URL），对配料和营养信息进行规范化，并通过 HTTP 提供可
+    搜索的食谱知识库。
+
+    - FastAPI HTTP API，端口 8000。
+    - PDF / 扫描版食谱导入（tesseract OCR + poppler + OpenCV）。
+    - URL 食谱导入。
+    - SQLite 知识库持久化到应用的数据卷，因此导入的食谱和上传的 PDF 在重启
+      和升级后依然保留。内置种子数据库，首次安装即可使用 API。
+    - 通过兼容 OpenAI 的代理（LiteLLM）进行 LLM 辅助解析（公网 HTTPS），
+      并可选地使用网络搜索（Brave）。
+
+    认证：由于原生应用直接调用该入口，此入口为公开（无 Olares SSO）。请将
+    COOKBOOK_API_TOKEN 设置为强密钥；API 要求每个请求都携带该 Bearer 令牌。
+
+    配置：使用前请设置密钥值（LITELLM_API_KEY、BRAVE_API_KEY、
+    COOKBOOK_API_TOKEN）。LITELLM_BASE_URL 默认为 LiteLLM 代理，可覆盖。

@@ -1,0 +1,75 @@
+olaresManifest.version: '0.11.0'
+olaresManifest.type: app
+metadata:
+  name: cookbook
+  appid: cookbook
+  title: Cookbook KB
+  icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
+  description: Recipe knowledge base API -- ingest, search, and serve recipes
+  version: 1.0.0
+  versionName: '1.0.0'
+  categories:
+    - Utilities
+entrances:
+  - name: cookbook
+    host: cookbook
+    port: 8000
+    title: Cookbook KB
+    openMethod: window
+    # public: the native iOS app calls this entrance directly. There is no
+    # Olares SSO in front of it; an app-level bearer token (COOKBOOK_API_TOKEN)
+    # that the FastAPI app validates protects every request instead.
+    authLevel: public
+spec:
+  versionName: '1.0.0'
+  fullDescription: |
+    Cookbook KB is the backend for the native Cookbook app (iPhone, iPad, Mac).
+    It is a self-hosted FastAPI service that ingests recipes (from PDFs, including
+    scanned cookbooks via OCR, and from URLs), normalizes ingredients and
+    nutrition, and serves a searchable recipe knowledge base over HTTP.
+
+    - FastAPI HTTP API on port 8000.
+    - PDF / scanned-cookbook ingestion (tesseract OCR + poppler + OpenCV).
+    - URL recipe ingestion.
+    - SQLite knowledge base persisted to the app's data volume, so ingested
+      recipes and uploaded PDFs survive restarts and upgrades. Ships with a
+      seed database so the API is useful immediately on first install.
+    - LLM-assisted parsing via an OpenAI-compatible proxy (LiteLLM) over public
+      HTTPS, plus optional web search (Brave).
+
+    Authentication: this entrance is public (no Olares SSO) because the native
+    app talks to it directly. Set COOKBOOK_API_TOKEN to a strong secret; the
+    API requires that bearer token on every request.
+
+    Configuration: set the secret values (LITELLM_API_KEY, BRAVE_API_KEY,
+    COOKBOOK_API_TOKEN) before use. LITELLM_BASE_URL defaults to the LiteLLM
+    proxy and can be overridden.
+  developer: trevestforvor
+  website: https://github.com/trevestforvor/weightloss
+  sourceCode: https://github.com/trevestforvor/weightloss
+  submitter: trevestforvor
+  locale:
+    - en-US
+    - zh-CN
+  license:
+    - text: MIT
+  category: Utilities
+  requiredMemory: 1Gi
+  limitedMemory: 2Gi
+  requiredCpu: '1'
+  limitedCpu: '2'
+  requiredGpu: '0'
+  limitedGpu: '0'
+  requiredDisk: 2Gi
+  limitedDisk: 10Gi
+  supportArch:
+    - amd64
+permission:
+  appData: true
+middleware: {}
+options:
+  apiTimeout: 0
+  dependencies:
+    - type: system
+      name: olares
+      version: '>=1.12.3-0'

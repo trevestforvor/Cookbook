@@ -1,0 +1,6 @@
+.DS_Store
+.git/
+docs/
+src/
+*.tgz
+docker/

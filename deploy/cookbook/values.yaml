@@ -1,0 +1,19 @@
+admin: ""
+bfl:
+  username: ""
+userspace:
+  appData: ""
+  appCache: ""
+  userData: ""
+image:
+  repository: "ghcr.io/trevestforvor/cookbook"
+  tag: "1.0.0"
+# Runtime config. SECRETS are placeholders here -- set the real values before
+# install; never commit real keys to this file. The non-secret values are
+# rendered into a ConfigMap; you can edit them per-install.
+env:
+  LITELLM_BASE_URL: "https://litellm.trevestforvorolares.olares.com/v1"
+  # --- SECRETS (replace before install) ---
+  LITELLM_API_KEY: "REPLACE_ME"
+  BRAVE_API_KEY: "REPLACE_ME"
+  COOKBOOK_API_TOKEN: "REPLACE_ME"

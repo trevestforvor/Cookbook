@@ -14,6 +14,7 @@ the app gets 404/400 instead of a 200 carrying an error blob.
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import sqlite3
@@ -48,7 +49,9 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
     """Bearer gate. No-op when COOKBOOK_API_TOKEN is unset (warned at startup)."""
     if not _AUTH_TOKEN:
         return
-    if authorization != f"Bearer {_AUTH_TOKEN}":
+    # Constant-time compare so a wrong token can't be probed via timing.
+    expected = f"Bearer {_AUTH_TOKEN}"
+    if authorization is None or not hmac.compare_digest(authorization, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
