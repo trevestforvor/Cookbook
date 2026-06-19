@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# DOX pre-commit guard. Flags (does NOT block) when staged source changed under a
+# boundary whose AGENTS.md wasn't touched. Activate it from the repo root with:
+#     git config core.hooksPath scripts/hooks
+# Make blocking by adding --strict below (then a flagged commit is rejected).
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+"$PY" "$ROOT/scripts/dox_check.py" --staged || true

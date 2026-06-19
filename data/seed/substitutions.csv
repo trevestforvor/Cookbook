@@ -1,0 +1,13 @@
+# ingredient,substitute,ratio,constraint_tags,notes
+butter,olive oil,0.75:1,vegan;dairy_free,use 3/4 the amount
+buttermilk,milk + lemon juice,1:1,,1 tbsp lemon per cup milk; rest 5 min
+egg,flax egg,1:1,vegan,1 tbsp ground flax + 3 tbsp water per egg; baking only
+milk,almond milk,1:1,vegan;dairy_free,unsweetened
+sour cream,greek yogurt,1:1,,higher protein
+soy sauce,tamari,1:1,gluten_free,
+all-purpose flour,almond flour,1:1,gluten_free,denser; add a little extra binder
+heavy cream,coconut cream,1:1,vegan;dairy_free,
+parmesan,nutritional yeast,0.5:1,vegan;dairy_free,cheesy/umami
+honey,maple syrup,1:1,vegan,
+rice,cauliflower rice,1:1,gluten_free,much lower calorie
+pasta,chickpea pasta,1:1,gluten_free,higher protein

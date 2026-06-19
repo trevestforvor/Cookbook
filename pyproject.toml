@@ -1,0 +1,47 @@
+[project]
+name = "cookbook-kb"
+version = "0.1.0"
+description = "Local weight-loss cookbook knowledge system"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.40",            # OpenAI-compatible client → LiteLLM proxy (replaces Ollama)
+  "instructor>=1.5",         # constrained JSON extraction over the OpenAI client
+  "pydantic>=2.7",
+  "python-dotenv>=1.0",
+  "pyyaml>=6.0",
+  "pymupdf>=1.24",           # digital PDF text + font spans
+  "pdfplumber>=0.11",        # table/column fallback
+  "pytesseract>=0.3.10",     # OCR (needs system `tesseract`)
+  "opencv-python>=4.9",      # OCR preprocessing
+  "pillow>=10.0",
+  "ingredient-parser-nlp>=1.0",
+  "pint>=0.23",              # unit math
+  "rapidfuzz>=3.9",          # fuzzy matching (canonicalization + food mapping)
+  "datasketch>=1.6",         # MinHash/LSH dedup
+  "sqlite-vec>=0.1.1",       # vector kNN (Phase 5)
+  "streamlit>=1.37",         # UI (Phase 7)
+  "mcp>=1.9,<2",             # Model Context Protocol server (stdio + streamable-http)
+  "anyio>=4",                # sync↔async bridge for the MCP tool worker threads (also an mcp dep)
+]
+
+[project.optional-dependencies]
+# Needed only for the streamable-HTTP transport (e.g. hosting on Olares).
+# stdio (Claude Code / Claude Desktop) works with the base install.
+http = ["uvicorn>=0.30", "starlette>=0.37"]
+# LAYER A · the REST boundary the SwiftUI/Olares app speaks to (wraps cb_tools + agent).
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.30", "python-multipart>=0.0.9"]
+
+[project.scripts]
+cookbook-kb-mcp = "cookbook_kb.mcp_server:main"
+cookbook-kb-ui = "cookbook_kb.ui.run:main"
+cookbook-kb-api = "cookbook_kb.api:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cookbook_kb = ["store/*.sql"]

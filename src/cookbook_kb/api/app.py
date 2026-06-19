@@ -1,0 +1,75 @@
+"""LAYER A · FastAPI app factory + uvicorn entry point.
+
+`create_app()` builds the app, mounts the area routers (recipes/state/
+intelligence/ingest), and attaches a single in-process ingestion `JobStore` to
+`app.state.job_store`. `main()` is the `cookbook-kb-api` console script; it runs
+uvicorn on config-driven host/port (COOKBOOK_API_HOST / COOKBOOK_API_PORT, mirroring
+the MCP server's COOKBOOK_MCP_HOST / COOKBOOK_MCP_PORT convention).
+
+The app reimplements no business logic — see the routers, each of which wraps the
+existing LAYER-1/3/5 functions.
+"""
+from __future__ import annotations
+
+import contextlib
+import os
+
+from fastapi import FastAPI
+
+from .jobs import JobStore
+from .routers import ingest as ingest_router
+from .routers import intelligence as intelligence_router
+from .routers import recipes as recipes_router
+from .routers import state as state_router
+from .worker import run_job
+
+API_TITLE = "Cookbook KB API"
+API_VERSION = "0.1.0"
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # The job store is created eagerly in create_app() (so the /ingest routes work
+    # even when the lifespan hasn't run — e.g. a bare TestClient). Lifespan only
+    # owns orderly shutdown of its worker pool.
+    try:
+        yield
+    finally:
+        app.state.job_store.shutdown()
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title=API_TITLE, version=API_VERSION, lifespan=_lifespan)
+
+    # One ingestion job store for the process lifetime. LAYER B wires the real
+    # ingestion worker here, so queued jobs run the PDF/URL → DB → embeddings
+    # pipeline (each in its own background thread + own db connection).
+    app.state.job_store = JobStore()
+    app.state.job_store.WORKER = run_job
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"ok": True, "service": API_TITLE, "version": API_VERSION}
+
+    app.include_router(recipes_router.router, tags=["recipes"])
+    app.include_router(state_router.router, tags=["state"])
+    app.include_router(intelligence_router.router, tags=["intelligence"])
+    app.include_router(ingest_router.router, tags=["ingest"])
+    return app
+
+
+# Module-level app so `uvicorn cookbook_kb.api.app:app` also works.
+app = create_app()
+
+
+def main() -> None:
+    """`cookbook-kb-api` console script — run uvicorn on config-driven host/port."""
+    import uvicorn
+
+    host = os.environ.get("COOKBOOK_API_HOST", "127.0.0.1")
+    port = int(os.environ.get("COOKBOOK_API_PORT", "8000"))
+    uvicorn.run("cookbook_kb.api.app:app", host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()

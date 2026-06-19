@@ -1,0 +1,24 @@
+{
+  "//": "Copy to .mcp.json (project-scoped) or merge into ~/.claude.json / Claude Desktop config.",
+  "//models": "Everything in env overrides .env and config.yaml — configure models/keys here.",
+  "mcpServers": {
+    "cookbook-kb": {
+      "command": "cookbook-kb-mcp",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "litellm",
+        "LLM_BASE_URL": "https://litellm.your-host.example/v1",
+        "LLM_API_KEY": "sk-...",
+        "LLM_CHAT_MODEL": "eagle-nothink",
+        "LLM_EMBED_MODEL": "jina",
+        "LLM_ALLOW_HOST_SAMPLING": "true",
+        "BRAVE_API_KEY": "",
+        "COOKBOOK_DB_PATH": "/Users/trevest/Developer/weightloss/data/db/cookbook.sqlite"
+      }
+    },
+    "//if-not-pip-installed": {
+      "command": "/Users/trevest/Developer/weightloss/.venv/bin/python",
+      "args": ["-m", "cookbook_kb.mcp_server"]
+    }
+  }
+}

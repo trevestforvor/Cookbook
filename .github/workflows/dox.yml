@@ -1,0 +1,19 @@
+name: DOX doc-drift guard
+
+# Fails a PR when source changed under a boundary whose AGENTS.md wasn't updated.
+# Enforcement (strict) lives in CI; the local pre-commit hook only warns.
+on:
+  pull_request:
+
+jobs:
+  dox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need the base ref to diff against
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: DOX guard
+        run: python scripts/dox_check.py --base "origin/${{ github.base_ref }}" --strict

@@ -1,0 +1,96 @@
+"""LAYER 2 · TOOLS — turn the LAYER-1 functions into model-callable tools.
+
+A "tool" is just a function (LAYER 1) + a JSON schema describing its name and
+arguments so an LLM can choose and call it. This file is the single source of
+truth for that mapping:
+
+  * TOOL_SCHEMAS — the schemas the model sees (OpenAI function-tool format).
+  * TOOLS        — name → function, the dispatch table the agent/server call.
+
+Both the Eagle agent (LAYER 3) and the MCP server (LAYER 5) consume this ONE
+registry, so every capability is defined exactly once. The harness tools
+(LAYER 5) are merged in at the bottom so the surface is unified.
+"""
+from __future__ import annotations
+
+from .functions import recipes
+from .harness import tools as harness_tools
+
+# ── Schemas the model sees (OpenAI function-tool format) ────────────────────
+TOOL_SCHEMAS = [
+    {"type": "function", "function": {"name": "search_recipes",
+        "description": "Filter recipes by precise criteria (calories, protein, time, diet, ingredient).",
+        "parameters": {"type": "object", "properties": {
+            "max_calories": {"type": "integer"}, "min_protein": {"type": "integer"},
+            "max_total_minutes": {"type": "integer"},
+            "diet": {"type": "string", "enum": ["vegan", "vegetarian", "gluten_free", "dairy_free"]},
+            "ingredient": {"type": "string"}, "exclude_ingredient": {"type": "string"},
+            "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
+            "meal": {"type": "string"}, "limit": {"type": "integer"}}}}},
+    {"type": "function", "function": {"name": "semantic_search",
+        "description": "Conceptual/vibe search when criteria are fuzzy (e.g. 'cozy comfort food').",
+        "parameters": {"type": "object", "required": ["query"],
+            "properties": {"query": {"type": "string"}, "k": {"type": "integer"}}}}},
+    {"type": "function", "function": {"name": "get_recipe",
+        "description": "Full recipe (ingredients + steps + nutrition) by id.",
+        "parameters": {"type": "object", "required": ["recipe_id"],
+            "properties": {"recipe_id": {"type": "integer"}}}}},
+    {"type": "function", "function": {"name": "recipes_from_pantry",
+        "description": "Recipes makeable from on-hand ingredients, fewest missing first. "
+                       "Omit `pantry` to use the user's saved pantry.",
+        "parameters": {"type": "object",
+            "properties": {"pantry": {"type": "array", "items": {"type": "string"}},
+                           "max_missing": {"type": "integer"}}}}},
+    {"type": "function", "function": {"name": "scale_recipe",
+        "description": "Recompute ingredient quantities for a target serving count.",
+        "parameters": {"type": "object", "required": ["recipe_id", "target_servings"],
+            "properties": {"recipe_id": {"type": "integer"}, "target_servings": {"type": "integer"}}}}},
+    {"type": "function", "function": {"name": "build_shopping_list",
+        "description": "Aggregate ingredients for chosen recipes, minus pantry.",
+        "parameters": {"type": "object", "required": ["recipe_ids"],
+            "properties": {"recipe_ids": {"type": "array", "items": {"type": "integer"}},
+                           "pantry": {"type": "array", "items": {"type": "string"}}}}}},
+    {"type": "function", "function": {"name": "find_substitutions",
+        "description": "Substitutes for an ingredient given a dietary constraint.",
+        "parameters": {"type": "object", "required": ["ingredient"],
+            "properties": {"ingredient": {"type": "string"},
+                           "constraint": {"type": "string", "enum": ["vegan", "gluten_free", "dairy_free", "none"]}}}}},
+    {"type": "function", "function": {"name": "generate_meal_plan",
+        "description": "Pick recipes for N days under a per-meal calorie budget + constraints.",
+        "parameters": {"type": "object", "required": ["days"],
+            "properties": {"days": {"type": "integer"}, "meals_per_day": {"type": "integer"},
+                           "max_calories_per_meal": {"type": "integer"}, "diet": {"type": "string"},
+                           "max_total_minutes": {"type": "integer"},
+                           "pantry": {"type": "array", "items": {"type": "string"}}}}}},
+    {"type": "function", "function": {"name": "import_recipe_from_url",
+        "description": "Fetch a recipe web page and save it to the DB. Returns {recipe_id, title} "
+                       "or {error}. Use when the user gives a single recipe URL.",
+        "parameters": {"type": "object", "required": ["url"],
+            "properties": {"url": {"type": "string"}}}}},
+    {"type": "function", "function": {"name": "research_recipes_online",
+        "description": "Delegate an OPEN-ENDED 'find recipes on the web' task to the web-researcher "
+                       "subagent — it searches, imports good matches, and reports back. Use for vague "
+                       "online discovery, NOT for a single known URL (use import_recipe_from_url).",
+        "parameters": {"type": "object", "required": ["request"],
+            "properties": {"request": {"type": "string",
+                "description": "natural-language description of the recipes to find"}}}}},
+]
+
+# name → LAYER-1 function. The dispatcher calls these as `fn(conn, **args)`.
+TOOLS = {fn.__name__: fn for fn in [
+    recipes.search_recipes, recipes.semantic_search, recipes.get_recipe,
+    recipes.recipes_from_pantry, recipes.scale_recipe, recipes.build_shopping_list,
+    recipes.find_substitutions, recipes.generate_meal_plan,
+    recipes.import_recipe_from_url, recipes.research_recipes_online]}
+
+# The recipe-only schema set (LAYER 1/2). The conversational agent advertises ONLY
+# these to the model — answering recipe questions never needs the 25 harness CRUD
+# tools, and re-sending all 36 schemas every ReAct turn is the dominant /ask latency
+# cost (measured: ~175s for a simple question with the full set).
+RECIPE_TOOL_SCHEMAS = list(TOOL_SCHEMAS)
+
+# ── merge in the harness/app-state tools (LAYER 5) so the MCP server exposes one
+#    unified surface (favorites, ratings, pantry, memory…). TOOLS (the dispatch map)
+#    keeps ALL tools so anything that IS called still executes.
+TOOL_SCHEMAS = TOOL_SCHEMAS + harness_tools.HARNESS_TOOL_SCHEMAS
+TOOLS.update(harness_tools.HARNESS_TOOLS)

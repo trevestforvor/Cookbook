@@ -1,0 +1,14 @@
+# Streamlit native theme — the slice of DESIGN.md (Vercel-inspired) Streamlit can do:
+# ink primary, white cards on soft canvas, blue links. Full design fidelity (mesh
+# gradient, pill CTAs, stacked shadows, Geist) is deferred to the SwiftUI client.
+[theme]
+base = "light"
+primaryColor = "#171717"            # ink — the accent / primary
+backgroundColor = "#ffffff"         # canvas (cards/main)
+secondaryBackgroundColor = "#fafafa" # canvas-soft (sidebar)
+textColor = "#171717"               # ink text
+linkColor = "#0070f3"               # brand link blue
+font = "sans-serif"                 # Inter is applied via CSS in app.py
+
+[server]
+headless = true

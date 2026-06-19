@@ -1,0 +1,96 @@
+name: Cookbook
+
+options:
+  bundleIdPrefix: com.trevest
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  CookbookKit:
+    path: ../CookbookKit
+
+# Two explicit single-platform application targets that SHARE the same `Sources`
+# and the CookbookKit / CookbookUI package products. `Cookbook` is the iOS app;
+# `CookbookMac` is the macOS app that makes the Mac cookbook import (NSOpenPanel +
+# window drag-drop) runnable.
+#
+# Why two separate targets (not one multiplatform target): XcodeGen 2.45.3 does not
+# emit a usable SDKROOT / SUPPORTED_PLATFORMS for a macOS *application* via
+# `supportedDestinations` or `platform: [iOS, macOS]`. Concrete single-platform
+# targets — matching the original known-good iOS target shape — build reliably.
+targets:
+  Cookbook:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - Sources
+    dependencies:
+      - package: CookbookKit
+        product: CookbookKit
+      - package: CookbookKit
+        product: CookbookUI
+    info:
+      path: Info-iOS.plist
+      properties:
+        CFBundleDisplayName: Cookbook
+        UILaunchScreen:
+          UIColorName: ""
+        UIRequiresFullScreen: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        # XcodeGen 2.45.3 omits a per-target SDKROOT in a mixed iOS+macOS project
+        # (it only writes a project-wide one for single-platform projects), which
+        # leaves the scheme's supported platforms empty. Pin it explicitly.
+        SDKROOT: iphoneos
+        PRODUCT_NAME: Cookbook
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        PRODUCT_BUNDLE_IDENTIFIER: com.trevest.cookbook
+        SWIFT_VERSION: "6.0"
+
+  CookbookMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - Sources
+    dependencies:
+      - package: CookbookKit
+        product: CookbookKit
+      - package: CookbookKit
+        product: CookbookUI
+    info:
+      path: Info-macOS.plist
+      properties:
+        CFBundleDisplayName: Cookbook
+        # http://localhost reachable on macOS for the dev FastAPI server.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        # See the iOS target — pin SDKROOT so the macOS scheme resolves its platform.
+        SDKROOT: macosx
+        PRODUCT_NAME: Cookbook
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        PRODUCT_BUNDLE_IDENTIFIER: com.trevest.cookbook
+        SWIFT_VERSION: "6.0"
+        # Dev build: no sandbox so NSOpenPanel reads arbitrary PDFs and the client
+        # can reach http://localhost without entitlement wrangling. Ad-hoc sign so
+        # the Mac app runs locally without a provisioning profile.
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO

@@ -1,0 +1,27 @@
+# Non-secret config. Secrets (proxy URL + key) live in .env.
+
+llm:
+  provider: litellm          # litellm (OpenAI-compatible proxy → vLLM) | openai (any OpenAI-compat endpoint)
+  chat_model: eagle-nothink  # Gemma 4 26B, no-reasoning. Thinking variant "eagle" burns the token budget → empty JSON. Override per call if needed.
+  embed_model: jina          # served via LiteLLM (Jina small text); dim read at index time
+  embed_dim: null            # set when an embedding model is picked
+  max_tokens: 2048
+  temperature: 0.0
+  allow_host_sampling: true  # when run as an MCP server, let plain-chat calls use the host model (Claude) via MCP sampling; falls back to the provider above. Tool-calling / guided-JSON / embeddings always use the provider.
+
+paths:
+  db: data/db/cookbook.sqlite
+  raw: data/raw
+  interim: data/interim
+  quarantine: data/quarantine
+  foods_db: data/raw/fdc       # USDA FoodData Central bulk download lands here
+
+extract:
+  window_pages: 3              # rolling page window for boundary detection
+  window_overlap: 1
+  max_retries: 1               # validation retries before quarantine
+
+normalize:
+  fuzzy_match_threshold: 90    # rapidfuzz ratio for ingredient canonicalization
+  food_match_cutoff: 85        # rapidfuzz WRatio cutoff for ingredient → FDC food mapping
+  dedup_jaccard: 0.80          # MinHash/LSH near-duplicate threshold
