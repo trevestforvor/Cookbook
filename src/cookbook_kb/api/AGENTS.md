@@ -7,7 +7,7 @@ A FastAPI app that wraps the EXISTING stack (functions/agent/harness) as HTTP so
 ## Ownership
 
 - `app.py` — the FastAPI app + router mounting.
-- `routers/` — `recipes.py` (search/detail/semantic + delete one / wipe library), `intelligence.py` (`/ask`, meal-plan, shopping list, substitutions), `state.py` (favorites/pantry/ratings/…), `ingest.py` (URL + async PDF jobs + delete/clear history).
+- `routers/` — `recipes.py` (search/detail/semantic + delete one / wipe library), `intelligence.py` (`/ask`, meal-plan, shopping list, substitutions), `state.py` (favorites/pantry/ratings/…), `ingest.py` (URL + async PDF jobs + delete/clear history), `compose.py` (conversational recipe builder: `/recipes/compose` + `/compose/save`).
 - `models.py` — pydantic request bodies; they mirror the LAYER-1 function kwargs and forward straight through.
 - `deps.py` — shared dependencies (DB connection, auth).
 - `jobs.py` + `worker.py` — async job queue for long-running ingestion.
@@ -19,6 +19,7 @@ A FastAPI app that wraps the EXISTING stack (functions/agent/harness) as HTTP so
 - **Long work is async, never inline.** PDF ingest and corpus backfills go through `jobs.py`/`worker.py`, not a blocking request handler.
 - **Destructive deletes are gated + versioned.** `DELETE /recipes/{id}`, `DELETE /recipes?confirm=true` (whole-library wipe), and `DELETE /ingest[...]` sit behind the same bearer `AUTH` as everything else. The wipe requires `?confirm=true`; the recipe SQL lives in `store/recipes_admin.py` (CASCADE + manual `recipes_fts`/`canonical_id` handling). Recipe deletes bump the catalog version so the app re-syncs; `DELETE /ingest` defaults to terminal-only so an in-flight import isn't dropped.
 - **Bind dual-stack.** Serve uvicorn on `--host ::` so both IPv6 (`::1`) and IPv4 clients connect; a single-stack bind leaves the other refused and hangs POSTs. The client defaults to `127.0.0.1` for the same reason.
+- **Compose is draft-only until Save.** `POST /recipes/compose` is one synchronous turn (like `/ask`) returning a TRANSIENT draft in the `get_recipe` envelope (`{recipe:{…flat row…}, ingredients, steps, sources}`); it NEVER writes. generate/refine uses the guided-JSON extract mechanism (never `agent.run`, which returns prose) and never invents nutrition; find-by-URL uses `ingest.url.parse_recipe_from_url` (parse-only, no load). Only `POST /recipes/compose/save` persists — normalize → `load_recipes` force-canonical (NO `apply_dedup`) → `finalize_ingest` → `{recipe_id, version, recipe_count}`. compose is deliberately NOT in `tools.RECIPE_TOOL_SCHEMAS` (no agent recursion). Free web-search find is deferred. Full spec: `docs/design-recipes-compose.md`.
 
 ## Work Guidance
 
