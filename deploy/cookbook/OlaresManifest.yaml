@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.5
-  versionName: '1.0.5'
+  version: 1.0.6
+  versionName: '1.0.6'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,13 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.5'
+  versionName: '1.0.6'
   upgradeDescription: |
+    v1.0.6 -- adds the conversational recipe builder (image sha-183238b):
+    POST /recipes/compose (one synchronous turn -> a transient recipe DRAFT;
+    generate from a description, parse a URL, or web-search find -- never writes)
+    and POST /recipes/compose/save (persists the agreed draft). Pairs with the
+    app's Assistant. Existing delete/wipe endpoints unchanged.
     v1.0.5 -- adds library-management endpoints (image sha-36c684e):
     DELETE /recipes/{id} (one recipe), DELETE /recipes?confirm=true (wipe the
     library to empty), and DELETE /ingest[/{job_id}] (clear import history).

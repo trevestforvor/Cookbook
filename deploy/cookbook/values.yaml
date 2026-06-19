@@ -8,9 +8,10 @@ userspace:
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
   # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
-  # semver tags). sha-36c684e adds the delete/wipe endpoints (on top of the
-  # config-ROOT crash fix). Bump this when CI publishes a newer image.
-  tag: "sha-36c684e"
+  # semver tags). sha-183238b adds the conversational recipe builder
+  # (/recipes/compose) on top of the delete/wipe endpoints. Bump on each
+  # new CI image.
+  tag: "sha-183238b"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user
