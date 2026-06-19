@@ -24,6 +24,7 @@ A native SwiftUI app for iPhone, iPad, and Mac: a thin-but-cached client over th
 - **Image loading uses Nuke (`LazyImage`/NukeUI).** Never hand-roll async image loading — it floods the network and lacks caching/cancellation.
 - **The app is a thin client.** Don't reimplement server logic (search, planning, nutrition) on-device; call the endpoint. Cache results in SwiftData for offline/perf.
 - **Respect the rate-sensitive embed endpoint.** Client search behavior must not hammer `/recipes/semantic` (each is a `jina` embed). See `CookbookKit/Sources/CookbookUI/AGENTS.md` for the as-you-type debounce/min-length/dedupe rules.
+- **Destructive + add flows are app-wide contracts.** Recipe/library/import-job deletes are always behind a `.confirmationDialog` and reconcile from the server response (catalog version), never a blind pull. The **Assistant is the unified ask + ADD surface**: describe / find-online / URL / PDF → an inline draft that **never persists until an explicit Save**. Specifics live in `CookbookKit/Sources/CookbookUI/AGENTS.md` (delete semantics + the compose draft/Save contract).
 
 ## Work Guidance
 
