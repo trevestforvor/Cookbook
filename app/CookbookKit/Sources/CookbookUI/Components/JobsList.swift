@@ -8,8 +8,8 @@ import CookbookKit
 /// timeline) with **per-row swipe-to-delete** and a **"Clear finished"** action
 /// gated behind a `.confirmationDialog`.
 ///
-/// This is the single source of truth for rendering ingestion jobs — used by both
-/// ``ImportView``'s jobs section and the Activity sheet raised from the assistant.
+/// This is the single source of truth for rendering ingestion jobs — used by the
+/// Activity sheet (``ActivityView``) raised from the Assistant.
 /// (DRY: there is no second copy of `JobRow`.)
 ///
 /// ### Delete semantics

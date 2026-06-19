@@ -68,16 +68,6 @@ public enum AppDestination: String, CaseIterable, Identifiable, Hashable, Sendab
 
 // MARK: - Sidebar selection
 
-/// What the macOS / iPad-regular sidebar can have selected. A superset of
-/// ``AppDestination``: the five tab destinations *plus* the top-level **Import**
-/// surface. Import is intentionally modeled here rather than as an
-/// ``AppDestination`` so it stays out of the iPhone `TabView` (which keeps its 5
-/// tabs) and only appears as a sidebar row on the larger layouts.
-private enum SidebarSelection: Hashable {
-    case destination(AppDestination)
-    case `import`
-}
-
 // MARK: - Root view
 
 /// Adaptive app shell.
@@ -98,13 +88,9 @@ public struct RootView: View {
     @Environment(CookbookEnvironment.self) private var environment
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    /// The selected destination — drives both the iPhone `TabView` and the
+    /// macOS / iPad-regular sidebar (kept as one source of truth).
     @State private var selection: AppDestination = .discover
-
-    /// The sidebar row selected on macOS / iPad-regular. A superset of the tab
-    /// destinations — it also carries the top-level **Import** surface, which is
-    /// deliberately *not* an ``AppDestination`` so it never appears as an iPhone
-    /// tab (the phone keeps its 5 tabs and reaches Import through Settings).
-    @State private var sidebarSelection: SidebarSelection = .destination(.discover)
 
     /// One navigation router per primary destination so each tab keeps its own
     /// recipe-detail back stack. The screens' `onSelect` / `onNavigate` /
@@ -113,21 +99,12 @@ public struct RootView: View {
         uniqueKeysWithValues: AppDestination.allCases.map { ($0, RecipeRouter()) }
     )
 
-    /// A dedicated router for the macOS / iPad-regular **Import** sidebar surface so
-    /// result-chip taps there push ``RecipeDetailView`` onto Import's own stack.
-    @State private var importRouter = RecipeRouter()
-
     /// Settings is presented as a sheet from the toolbar gear on all platforms
     /// (macOS also gets the standard `Settings` scene wired in the app entry).
     @State private var showingSettings = false
 
-    /// The cross-platform Import sheet, raised from Settings' "Import cookbooks" row
-    /// (and used as the iPhone path, where Import is not a sidebar destination).
-    @State private var showingImport = false
-
     public init(initialTab: AppDestination? = nil, initialRecipeId: Int? = nil) {
         _selection = State(initialValue: initialTab ?? .discover)
-        _sidebarSelection = State(initialValue: .destination(initialTab ?? .discover))
         let seeded = Dictionary(
             uniqueKeysWithValues: AppDestination.allCases.map { ($0, RecipeRouter()) }
         )
@@ -142,19 +119,9 @@ public struct RootView: View {
         routers[destination] ?? RecipeRouter()
     }
 
-    /// The router for whichever surface is currently active, so Settings/Import
-    /// `onOpenRecipe` jumps land on the visible stack.
-    private var activeRouter: RecipeRouter {
-        #if os(macOS)
-        if case .import = sidebarSelection { return importRouter }
-        return router(for: selection)
-        #else
-        if horizontalSizeClass == .regular, case .import = sidebarSelection {
-            return importRouter
-        }
-        return router(for: selection)
-        #endif
-    }
+    /// The router for the active destination, so a Settings `onOpenRecipe` jump
+    /// lands on the visible stack.
+    private var activeRouter: RecipeRouter { router(for: selection) }
 
     public var body: some View {
         Group {
@@ -173,11 +140,6 @@ public struct RootView: View {
         .sheet(isPresented: $showingSettings) {
             settingsSheet
         }
-        // Import sheet — raised from Settings on iPhone (and as a universal fallback);
-        // on macOS / iPad-regular Import is primarily the sidebar destination.
-        .sheet(isPresented: $showingImport) {
-            importSheet
-        }
         // macOS: accept a cookbook PDF dropped anywhere on the main window.
         #if os(macOS)
         .onDrop(of: [.pdf, .fileURL], isTargeted: nil) { providers in
@@ -192,26 +154,9 @@ public struct RootView: View {
     /// same everywhere (macOS additionally exposes the standard ⌘, Settings scene).
     private func openSettings() { showingSettings = true }
 
-    /// Open the Import surface from Settings. On macOS / iPad-regular this selects
-    /// the dedicated Import sidebar row (dismissing Settings); on iPhone-compact it
-    /// raises the Import sheet.
-    private func openImport() {
-        #if os(macOS)
-        showingSettings = false
-        sidebarSelection = .import
-        #else
-        if horizontalSizeClass == .regular {
-            showingSettings = false
-            sidebarSelection = .import
-        } else {
-            showingImport = true
-        }
-        #endif
-    }
-
     private var settingsSheet: some View {
         NavigationStack {
-            SettingsView(onOpenImport: { openImport() })
+            SettingsView()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { showingSettings = false }
@@ -222,25 +167,6 @@ public struct RootView: View {
         .tint(Color.appAccent)
         #if os(macOS)
         .frame(minWidth: 520, minHeight: 600)
-        #endif
-    }
-
-    private var importSheet: some View {
-        NavigationStack {
-            ImportView(onOpenRecipe: { recipeId in
-                showingImport = false
-                activeRouter.open(recipeId)
-            })
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { showingImport = false }
-                        .tint(Color.appAccent)
-                }
-            }
-        }
-        .tint(Color.appAccent)
-        #if os(macOS)
-        .frame(minWidth: 560, minHeight: 640)
         #endif
     }
 
@@ -259,8 +185,8 @@ public struct RootView: View {
                 let url = URL(dataRepresentation: data, relativeTo: nil),
                 url.pathExtension.lowercased() == "pdf"
             else { return }
+            // Ingest in the background; the job shows in the Assistant's Activity sheet.
             Task { @MainActor in
-                sidebarSelection = .import
                 await environment.ingestionStore.ingestPDF(fileURL: url)
             }
         }
@@ -293,28 +219,18 @@ public struct RootView: View {
             // (`Binding<SelectionValue?>`); the non-optional overload is macOS-only.
             // Bridge the non-optional `sidebarSelection` state to an optional binding
             // so the same `splitView` compiles on both iOS (iPad regular) and macOS.
-            List(selection: Binding<SidebarSelection?>(
-                get: { sidebarSelection },
+            List(selection: Binding<AppDestination?>(
+                get: { selection },
                 set: { newValue in
                     guard let newValue else { return }
-                    sidebarSelection = newValue
-                    // Keep the tab `selection` in lockstep for destination rows so
-                    // switching chromes (e.g. iPad rotate) preserves the screen.
-                    if case let .destination(d) = newValue { selection = d }
+                    selection = newValue
                 }
             )) {
                 Section {
                     ForEach(AppDestination.allCases) { destination in
-                        NavigationLink(value: SidebarSelection.destination(destination)) {
+                        NavigationLink(value: destination) {
                             Label(destination.title, systemImage: destination.systemImage)
                         }
-                    }
-                }
-                // Import is a top-level sidebar surface on the big screens only —
-                // never an iPhone tab. Lives in its own section, below the five.
-                Section {
-                    NavigationLink(value: SidebarSelection.import) {
-                        Label("Import", systemImage: "tray.and.arrow.down")
                     }
                 }
                 Section {
@@ -332,30 +248,9 @@ public struct RootView: View {
             .listStyle(.sidebar)
             #endif
         } detail: {
-            switch sidebarSelection {
-            case .destination(let destination):
-                destinationStack(destination)
-            case .import:
-                importStack
-            }
+            destinationStack(selection)
         }
         .tint(Color.appAccent)
-    }
-
-    /// The Import surface (macOS / iPad-regular sidebar) wrapped in its own
-    /// `NavigationStack` so result-chip taps push ``RecipeDetailView`` onto Import's
-    /// dedicated `importRouter` path.
-    private var importStack: some View {
-        @Bindable var router = importRouter
-        return NavigationStack(path: $router.path) {
-            ImportView(onOpenRecipe: { router.open($0) })
-                .navigationDestination(for: Int.self) { recipeId in
-                    RecipeDetailView(
-                        recipeId: recipeId,
-                        onNavigate: { router.open($0) }
-                    )
-                }
-        }
     }
 
     // MARK: Destination routing

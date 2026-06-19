@@ -5,8 +5,8 @@ import CookbookKit
 
 /// The ingestion-activity sheet: a modal view over the cook's import jobs, raised
 /// from the Assistant. It reuses the shared ``JobsList`` (per-row swipe-to-delete +
-/// confirmed "Clear finished") so it stays byte-for-byte consistent with
-/// ``ImportView``'s jobs section — there is no second copy of the row rendering.
+/// confirmed "Clear finished") — the single ingestion-jobs renderer, so there is no
+/// second copy of the row rendering.
 ///
 /// ### Why a sheet
 /// The Assistant tab already hosts its own `NavigationStack`; nesting a second one

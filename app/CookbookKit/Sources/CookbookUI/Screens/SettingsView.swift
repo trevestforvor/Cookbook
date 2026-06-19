@@ -40,9 +40,6 @@ import CookbookKit
 public struct SettingsView: View {
     @Environment(CookbookEnvironment.self) private var environment
 
-    /// The integrator routes this to the cookbook ImportView.
-    public let onOpenImport: () -> Void
-
     // Server & sync ---------------------------------------------------------
     @State private var baseURLDraft: String
     @State private var bearerTokenDraft: String
@@ -68,10 +65,7 @@ public struct SettingsView: View {
     @State private var foodDraft: String
     @State private var profileLoaded = false
 
-    /// - Parameter onOpenImport: invoked when the cook taps the "Import cookbooks"
-    ///   row. Defaults to a no-op so the screen previews standalone.
-    public init(onOpenImport: @escaping () -> Void = {}) {
-        self.onOpenImport = onOpenImport
+    public init() {
         _baseURLDraft = State(initialValue: SettingsDefaults.storedBaseURLString ?? "")
         _bearerTokenDraft = State(initialValue: SettingsDefaults.storedBearerToken ?? "")
         _calorieTarget = State(initialValue: 2000)
@@ -89,7 +83,6 @@ public struct SettingsView: View {
             serverSection
             cookProfileSection
             foodPreferenceSection
-            importSection
             aboutSection
         }
         .formStyle(.grouped)
@@ -436,34 +429,7 @@ public struct SettingsView: View {
         .accessibilityLabel("\(title) \(trimmedFoodDraft)")
     }
 
-    // MARK: - 3. Import
-
-    private var importSection: some View {
-        Section {
-            Button(action: onOpenImport) {
-                HStack(spacing: Theme.Spacing.md) {
-                    Image(systemName: "books.vertical")
-                        .foregroundStyle(Color.appAccent)
-                    Text("Import cookbooks")
-                        .font(.appBody)
-                        .foregroundStyle(Color.appTextPrimary)
-                    Spacer(minLength: Theme.Spacing.sm)
-                    Image(systemName: "chevron.right")
-                        .font(.appCaption.weight(.semibold))
-                        .foregroundStyle(Color.appTextSecondary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Import cookbooks")
-            .accessibilityHint("Opens the cookbook import screen")
-        } header: {
-            sectionHeader("Import")
-        }
-        .listRowBackground(Color.appSurface)
-    }
-
-    // MARK: - 4. About
+    // MARK: - 3. About
 
     private var aboutSection: some View {
         Section {
