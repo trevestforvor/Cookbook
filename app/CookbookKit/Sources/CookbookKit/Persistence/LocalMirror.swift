@@ -352,4 +352,28 @@ public actor LocalMirror {
         for e in try modelContext.fetch(descriptor) { modelContext.delete(e) }
         try modelContext.save()
     }
+
+    /// Replace the cached ingest jobs with the server's authoritative set: delete any
+    /// cached row the server no longer returns (so a cleared / server-deleted job
+    /// does NOT linger and reappear), then upsert the incoming ones. Mirrors
+    /// `replaceRecipes`' reconcile-deletions semantics — `GET /ingest` is the source
+    /// of truth. An upsert-only refresh leaks deleted jobs back into the list.
+    public func replaceIngestJobs(_ jobs: [IngestJob]) throws {
+        let incoming = Set(jobs.map(\.jobId))
+        for e in try modelContext.fetch(FetchDescriptor<IngestJobEntity>())
+        where !incoming.contains(e.jobId) {
+            modelContext.delete(e)
+        }
+        for job in jobs {
+            let jobId = job.jobId
+            var d = FetchDescriptor<IngestJobEntity>(predicate: #Predicate { $0.jobId == jobId })
+            d.fetchLimit = 1
+            if let e = try modelContext.fetch(d).first {
+                e.apply(job)
+            } else {
+                modelContext.insert(IngestJobEntity.make(from: job))
+            }
+        }
+        try modelContext.save()
+    }
 }

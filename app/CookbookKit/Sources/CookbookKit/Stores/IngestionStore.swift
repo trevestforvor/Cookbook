@@ -39,7 +39,10 @@ public final class IngestionStore {
     public func refreshFromServer() async {
         do {
             let serverJobs = try await client.ingestJobs()
-            for job in serverJobs { try await mirror.upsertIngestJob(job) }
+            // Authoritative replace (delete-missing + upsert), NOT a merge: an
+            // upsert-only refresh left server-cleared/-deleted jobs lingering in the
+            // mirror, so they reappeared on the next Import-screen visit.
+            try await mirror.replaceIngestJobs(serverJobs)
             jobs = try await mirror.ingestJobs()
             lastError = nil
         } catch {

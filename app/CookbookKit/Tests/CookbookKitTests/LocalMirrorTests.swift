@@ -112,4 +112,27 @@ final class LocalMirrorTests: XCTestCase {
         let jobCount = try await mirror.ingestJobs().count
         XCTAssertEqual(jobCount, 1)
     }
+
+    /// `refreshFromServer` replaces (not merges) the cached jobs, so a job the server
+    /// no longer returns (cleared / deleted) must NOT linger in the mirror — the bug
+    /// where "Clear finished" jobs reappeared on the next Import-screen visit.
+    func testReplaceIngestJobsReconcilesDeletions() async throws {
+        let mirror = try makeMirror()
+        try await mirror.upsertIngestJob(IngestJob(jobId: "j1", kind: .pdf, status: .done,
+                                                   recipesDone: 5, recipesTotal: 5, recipeIds: [1]))
+        try await mirror.upsertIngestJob(IngestJob(jobId: "j2", kind: .url, status: .error,
+                                                   recipesDone: 0, recipesTotal: 0, recipeIds: []))
+        let initialCount = try await mirror.ingestJobs().count
+        XCTAssertEqual(initialCount, 2)
+
+        // Server now reports only j2 (j1 was cleared). replace must drop j1.
+        try await mirror.replaceIngestJobs([
+            IngestJob(jobId: "j2", kind: .url, status: .error,
+                      recipesDone: 0, recipesTotal: 0, recipeIds: [])
+        ])
+        let remaining = try await mirror.ingestJobs()
+        XCTAssertEqual(remaining.map(\.jobId), ["j2"])
+        let lingering = try await mirror.ingestJob(id: "j1")
+        XCTAssertNil(lingering, "a job absent from the server set must not linger")
+    }
 }
