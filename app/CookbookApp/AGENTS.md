@@ -7,7 +7,7 @@ The thin app shell that turns `CookbookKit` into shippable iOS and macOS apps. H
 ## Ownership
 
 - `project.yml` — XcodeGen spec defining two targets: `Cookbook` (iOS, `SDKROOT iphoneos`) and `CookbookMac` (macOS, `SDKROOT macosx`, sandbox off, ad-hoc signing). They share `Sources/`.
-- `Sources/CookbookApp.swift` — `@main`. Boots demo (seeded, no network) or live mode; parses launch args (`-live`, `-uiTab`, `-uiRecipe`); seeds base URL + token from `SettingsDefaults`.
+- `Sources/CookbookApp.swift` — `@main`. Boots live whenever a server URL is saved in `SettingsDefaults` (else the seeded no-network demo); `-live` / `appMode = .live` force live regardless. Parses launch args (`-live`, `-uiTab`, `-uiRecipe`); seeds base URL + token from `SettingsDefaults`.
 - `Info-iOS.plist` / `Info-macOS.plist` — separate per-target plists.
 - `Cookbook.xcodeproj` — generated; do not hand-edit, regenerate via XcodeGen.
 
@@ -15,6 +15,7 @@ The thin app shell that turns `CookbookKit` into shippable iOS and macOS apps. H
 
 - **Each target MUST have its OWN Info.plist.** The two targets sharing one `info.path` was the root cause of the iOS letterbox bug: the macOS target clobbered the shared plist and dropped `UILaunchScreen`, so iOS ran non-fullscreen/cramped. Keep `Info-iOS.plist` (with `UILaunchScreen`, `UIRequiresFullScreen=false`, `UIApplicationSceneManifest`, `NSAppTransportSecurity.NSAllowsLocalNetworking=true`) and `Info-macOS.plist` distinct. When a layout looks broken, check the plist/window before debugging SwiftUI views.
 - **Default base URL is `http://127.0.0.1:8000`, not `localhost`.** `localhost` resolves to `::1` first; if the server is single-stack that hangs POSTs. (Server side: bind `--host ::`.)
+- **A saved server URL must win on every cold launch.** `appMode = .demo` is only the *fresh-install* default; `init()` promotes to live mode when `SettingsDefaults.storedBaseURLString` is non-empty, so the configured server survives restarts. Don't gate live mode on `appMode`/`-live` alone — that silently reverts a configured app to localhost on relaunch.
 - **Regenerate after target/plist edits.** Run XcodeGen; never hand-edit `.xcodeproj`.
 - `-askDemo` is a temporary debug launch trigger (fires a hardcoded query); it's test scaffolding and must not ship.
 

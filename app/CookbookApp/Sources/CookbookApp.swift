@@ -29,7 +29,13 @@ struct CookbookApp: App {
         initialTab = value("-uiTab").flatMap(AppDestination.init(rawValue:))
         initialRecipeId = value("-uiRecipe").flatMap(Int.init)
 
-        let wantLive = appMode == .live || args.contains("-live")
+        // Once the user has saved a server URL in Settings, honor it on EVERY cold
+        // launch — otherwise the app boots back into demo mode (localhost) and
+        // silently ignores the configured server. A fresh install with no saved
+        // server still gets the no-network demo showcase.
+        let hasSavedServer = !(SettingsDefaults.storedBaseURLString ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let wantLive = appMode == .live || args.contains("-live") || hasSavedServer
         // Seed the base URL + bearer token from the values the Settings screen
         // persisted on a previous launch (it writes them to UserDefaults via
         // `SettingsDefaults`), falling back to the local FastAPI default. Live
