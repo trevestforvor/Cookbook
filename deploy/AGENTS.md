@@ -21,7 +21,11 @@ This is a packaging boundary, not application code.
   match (Olares linter). Version is synced across the four required fields.
 - **Build context is the repo root.** The Dockerfile reaches up for `src/`,
   `pyproject.toml`, `config.yaml`, and the seed DB. The root `.dockerignore` keeps the
-  Swift app and bulky `data/` out — only `data/db/cookbook.sqlite` is shipped as seed.
+  Swift app and the entire (gitignored) `data/` out of the image.
+- **Seed DB is a committed snapshot at `deploy/seed/cookbook.sqlite`** — NOT the live
+  `data/db/cookbook.sqlite`, which is gitignored and would be absent on a CI checkout.
+  The entrypoint copies it into the volume only if empty. To refresh the seed
+  intentionally: `cp data/db/cookbook.sqlite deploy/seed/cookbook.sqlite` and commit.
 - **Public entrance + app-level auth.** The entrance is `authLevel: public` (a native
   client can't ride Olares SSO). The API self-gates with `COOKBOOK_API_TOKEN`; the
   client sends `Authorization: Bearer <token>`. `/health` is the unauthenticated probe.

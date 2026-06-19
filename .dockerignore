@@ -1,7 +1,5 @@
-# NOTE: the Docker build context is the REPO ROOT, and this file must be at
-# the repo root to take effect (Docker only reads <context>/.dockerignore).
-# A symlink or copy of this file to /Users/trevest/Developer/weightloss/.dockerignore
-# is what Docker actually consults. Keep them in sync.
+# NOTE: the Docker build context is the REPO ROOT, so this file lives at the
+# repo root (Docker only reads <context>/.dockerignore).
 
 # --- Version control / tooling ---
 .git
@@ -31,11 +29,8 @@ env/
 .vscode/
 *.log
 
-# --- Data: exclude everything under data/ EXCEPT the seed DB ---------------
-# We ship ONLY the ~4.4MB seed DB (data/db/cookbook.sqlite) via an explicit
-# COPY in the Dockerfile. Uploaded PDFs (data/uploads) and raw source PDFs
-# (data/raw) must NOT bloat the image / leak into it.
+# --- Data: never ship the runtime data dir ---------------------------------
+# The seed DB ships from deploy/seed/cookbook.sqlite (a committed snapshot), NOT
+# from here. Uploaded PDFs (data/uploads) and raw source PDFs (data/raw) must
+# never bloat the image or leak into it.
 data/
-!data/db/
-data/db/*
-!data/db/cookbook.sqlite

@@ -42,9 +42,11 @@ RUN pip install --no-cache-dir ".[api]"
 COPY config.yaml ./config.yaml
 
 # --- Seed DB ----------------------------------------------------------------
-# Ship the seed DB inside the image. The entrypoint copies it into the
-# persistent volume at /app/data/db/cookbook.sqlite only if absent.
-COPY data/db/cookbook.sqlite /app/seed/cookbook.sqlite
+# Ship a committed seed snapshot (deploy/seed/cookbook.sqlite), NOT the gitignored
+# live runtime DB (data/db/), so this COPY works on a clean CI checkout. The
+# entrypoint copies it into the persistent volume at /app/data/db/cookbook.sqlite
+# only if absent. Refresh the snapshot intentionally: see deploy/AGENTS.md.
+COPY deploy/seed/cookbook.sqlite /app/seed/cookbook.sqlite
 
 # --- Entrypoint -------------------------------------------------------------
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh

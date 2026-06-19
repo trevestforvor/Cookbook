@@ -12,8 +12,10 @@ deploy/
 ```
 
 The build context is the **repo root** (the Dockerfile reaches up for `src/`,
-`pyproject.toml`, `config.yaml`, and the seed DB). `/.dockerignore` keeps the
-Swift app and the bulky `data/` out — only `data/db/cookbook.sqlite` is shipped.
+`pyproject.toml`, `config.yaml`, and the seed DB). `/.dockerignore` keeps the Swift
+app and the whole gitignored `data/` out. The seed DB shipped in the image is a
+committed snapshot at `deploy/seed/cookbook.sqlite` — refresh it intentionally with
+`cp data/db/cookbook.sqlite deploy/seed/cookbook.sqlite` and commit.
 
 ## Architecture recap
 
@@ -29,7 +31,7 @@ Swift app and the bulky `data/` out — only `data/db/cookbook.sqlite` is shippe
   extraction + embedding run server-side in the pod.
 - **Persistence.** `/app/data` (SQLite DB + uploaded PDFs) is a `hostPath` volume
   under `userspace.appData` — survives restarts/upgrades. Seeded once from the
-  4.4 MB DB baked into the image; grows as the app uploads.
+  seed snapshot (`deploy/seed/cookbook.sqlite`) baked into the image; grows as the app uploads.
 - **LLM proxy.** Reached over public HTTPS at `litellm.trevestforvorolares.olares.com`
   — already on this Olares box, no special network policy needed.
 
