@@ -7,10 +7,10 @@ userspace:
   userData: ""
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
-  # Pin to the immutable CI SHA tag. There is no :1.0.0 tag on GHCR
-  # (only sha-<commit> + latest are published), so referencing 1.0.0
-  # caused ImagePullBackOff. Bump this when CI publishes a newer image.
-  tag: "sha-8106a68"
+  # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
+  # semver tags). sha-7516e95 is the first image with the config-ROOT fix that
+  # stopped the CrashLoopBackOff. Bump this when CI publishes a newer image.
+  tag: "sha-7516e95"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user

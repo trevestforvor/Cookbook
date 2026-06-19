@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.2
-  versionName: '1.0.2'
+  version: 1.0.3
+  versionName: '1.0.3'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,13 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.2'
+  versionName: '1.0.3'
   upgradeDescription: |
+    v1.0.3 -- repins the image to sha-7516e95, the first build with the
+    config-ROOT fix (the FastAPI image crash-looped on import because config.py
+    resolved its root to the python lib dir, not /app, so config.yaml was never
+    found; the fix anchors COOKBOOK_ROOT=/app). Replaces the on-device symlink
+    band-aid and also lands the data/ dirs on the persistent volume.
     v1.0.2 -- config fix: the secrets (LITELLM_API_KEY, BRAVE_API_KEY,
     COOKBOOK_API_TOKEN) and LITELLM_BASE_URL are now declared as Olares `envs:`
     fields, so they show up as editable inputs in the app's install / settings
