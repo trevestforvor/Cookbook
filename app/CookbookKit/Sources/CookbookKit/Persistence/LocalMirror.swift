@@ -110,6 +110,19 @@ public actor LocalMirror {
         try modelContext.fetchCount(FetchDescriptor<RecipeEntity>())
     }
 
+    /// Optimistic local delete of a single recipe (cascade children) before the
+    /// server ACK. No-op if the id isn't cached.
+    public func deleteRecipeLocally(id: Int) throws {
+        if let e = try recipeEntity(id: id) { modelContext.delete(e) }
+        try modelContext.save()
+    }
+
+    /// Wipe every cached recipe (cascade children). Reuses the delete-missing path of
+    /// `replaceRecipes` with an empty set.
+    public func wipeRecipesLocally() throws {
+        try replaceRecipes([])
+    }
+
     // MARK: - State hydration (favorites / pantry / preferences / recents / cooked)
 
     /// Replace all locally-mirrored app state from a single `/state` payload.
@@ -311,5 +324,32 @@ public actor LocalMirror {
         var d = FetchDescriptor<IngestJobEntity>(predicate: #Predicate { $0.jobId == jobId })
         d.fetchLimit = 1
         return try modelContext.fetch(d).first?.toDTO()
+    }
+
+    /// Optimistic local delete of a single ingest job before the server ACK. No-op if
+    /// the job id isn't cached.
+    public func deleteIngestJobLocally(jobId: String) throws {
+        var d = FetchDescriptor<IngestJobEntity>(predicate: #Predicate { $0.jobId == jobId })
+        d.fetchLimit = 1
+        if let e = try modelContext.fetch(d).first { modelContext.delete(e) }
+        try modelContext.save()
+    }
+
+    /// Delete ingest job rows whose status is terminal (`done`/`error`); pass
+    /// `terminalOnly: false` to clear every job. `IngestStatus.isTerminal` is a
+    /// computed property `#Predicate` can't reference, so the terminal set is matched
+    /// on the stored raw status strings.
+    public func clearIngestJobsLocally(terminalOnly: Bool) throws {
+        let descriptor: FetchDescriptor<IngestJobEntity>
+        if terminalOnly {
+            let done = IngestStatus.done.rawValue
+            let error = IngestStatus.error.rawValue
+            descriptor = FetchDescriptor<IngestJobEntity>(
+                predicate: #Predicate { $0.statusRaw == done || $0.statusRaw == error })
+        } else {
+            descriptor = FetchDescriptor<IngestJobEntity>()
+        }
+        for e in try modelContext.fetch(descriptor) { modelContext.delete(e) }
+        try modelContext.save()
     }
 }

@@ -58,6 +58,9 @@ public struct BrowseView: View {
     @State private var askError: String?
     @State private var askTask: Task<Void, Never>?
 
+    // Pending GLOBAL catalog delete (a row swiped Delete; confirmed before firing).
+    @State private var pendingDelete: RecipeSummary?
+
     /// - Parameter onSelect: receives the tapped recipe's id for the host to
     ///   navigate to. Defaults to a no-op so previews render standalone.
     public init(onSelect: @escaping (Int) -> Void = { _ in }) {
@@ -68,8 +71,11 @@ public struct BrowseView: View {
     private var libraryStore: LibraryStore { environment.libraryStore }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+        // A `List` (not a `ScrollView`) so the result rows get native
+        // `.swipeActions` for the GLOBAL catalog delete. The search field, ask card,
+        // control bar, and active-filter row ride along as plain full-bleed rows.
+        List {
+            composedRow {
                 SearchField(
                     text: $ingredientText,
                     placeholder: "Must include ingredient\u{2026}",
@@ -78,8 +84,10 @@ public struct BrowseView: View {
                     onAsk: { runAsk() }
                 )
                 .padding(.horizontal, Theme.Spacing.lg)
+            }
 
-                if isAsking || askAnswer != nil || askError != nil {
+            if isAsking || askAnswer != nil || askError != nil {
+                composedRow {
                     AssistantAnswerCard(
                         isAsking: isAsking,
                         answer: askAnswer,
@@ -88,17 +96,19 @@ public struct BrowseView: View {
                     )
                     .padding(.horizontal, Theme.Spacing.lg)
                 }
-
-                controlBar
-
-                if appliedSummary.isEmpty == false {
-                    activeFilterRow
-                }
-
-                resultsSection
             }
-            .padding(.vertical, Theme.Spacing.lg)
+
+            composedRow { controlBar }
+
+            if appliedSummary.isEmpty == false {
+                composedRow { activeFilterRow }
+            }
+
+            resultsSection
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, 0)
         .background(Color.appBackground)
         .navigationTitle("Browse")
         #if os(iOS)
@@ -128,6 +138,22 @@ public struct BrowseView: View {
                     draft = BrowseFilters()
                 }
             )
+        }
+        // GLOBAL catalog delete (distinct from Saved's unfavorite): these are search
+        // results, so deleting one destroys it for the whole library.
+        .confirmationDialog(
+            "Delete this recipe?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { recipe in
+            Button("Delete Recipe", role: .destructive) { confirmDelete(recipe) }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { recipe in
+            Text("This permanently removes \u{201C}\(recipe.title)\u{201D} from your entire library. This can't be undone.")
         }
         .task {
             await loadInitial()
@@ -214,46 +240,75 @@ public struct BrowseView: View {
     @ViewBuilder
     private var resultsSection: some View {
         if recipeStore.isLoading && results.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, Theme.Spacing.xl)
-                .tint(Color.appAccent)
+            composedRow {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.Spacing.xl)
+                    .tint(Color.appAccent)
+            }
         } else if let error = recipeStore.lastError, results.isEmpty {
-            EmptyState(
-                systemImage: "wifi.slash",
-                message: "Couldn't load recipes",
-                subtitle: error,
-                actionTitle: "Retry",
-                action: { runQueryNow() }
-            )
-            .padding(.horizontal, Theme.Spacing.lg)
+            composedRow {
+                EmptyState(
+                    systemImage: "wifi.slash",
+                    message: "Couldn't load recipes",
+                    subtitle: error,
+                    actionTitle: "Retry",
+                    action: { runQueryNow() }
+                )
+            }
         } else if results.isEmpty {
-            EmptyState(
-                systemImage: "magnifyingglass",
-                message: "No recipes match",
-                subtitle: hasActiveFilters
-                    ? "Loosen a filter to see more of the catalog."
-                    : "The catalog is empty right now.",
-                actionTitle: hasActiveFilters ? "Clear filters" : nil,
-                action: hasActiveFilters ? { clearAllFilters() } : nil
-            )
-            .padding(.horizontal, Theme.Spacing.lg)
+            composedRow {
+                EmptyState(
+                    systemImage: "magnifyingglass",
+                    message: "No recipes match",
+                    subtitle: hasActiveFilters
+                        ? "Loosen a filter to see more of the catalog."
+                        : "The catalog is empty right now.",
+                    actionTitle: hasActiveFilters ? "Clear filters" : nil,
+                    action: hasActiveFilters ? { clearAllFilters() } : nil
+                )
+            }
         } else {
-            LazyVStack(spacing: Theme.Spacing.md) {
-                ForEach(sortedResults) { recipe in
-                    let favorited = libraryStore.isFavorite(recipeId: recipe.id)
-                    RecipeCard(
-                        summary: recipe,
-                        style: .listRow,
-                        nutritionSource: statedIfHasCalories(recipe),
-                        isFavorite: favorited,
-                        onTap: { onSelect(recipe.id) },
-                        onToggleFavorite: { toggleFavorite(recipe, currently: favorited) }
-                    )
+            ForEach(sortedResults) { recipe in
+                let favorited = libraryStore.isFavorite(recipeId: recipe.id)
+                RecipeCard(
+                    summary: recipe,
+                    style: .listRow,
+                    nutritionSource: statedIfHasCalories(recipe),
+                    isFavorite: favorited,
+                    onTap: { onSelect(recipe.id) },
+                    onToggleFavorite: { toggleFavorite(recipe, currently: favorited) }
+                )
+                .listRowInsets(EdgeInsets(
+                    top: Theme.Spacing.xs, leading: Theme.Spacing.lg,
+                    bottom: Theme.Spacing.xs, trailing: Theme.Spacing.lg
+                ))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        pendingDelete = recipe
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
             }
-            .padding(.horizontal, Theme.Spacing.lg)
         }
+    }
+
+    /// Wrap a header / state view as a plain, full-bleed `List` row (cleared
+    /// background + separator) so it sits in the same `List` as the swipe-deletable
+    /// result rows without inheriting `List` chrome.
+    @ViewBuilder
+    private func composedRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(
+                top: Theme.Spacing.sm, leading: 0,
+                bottom: Theme.Spacing.sm, trailing: 0
+            ))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     // MARK: Derived
@@ -402,6 +457,21 @@ public struct BrowseView: View {
             } else {
                 await libraryStore.addFavorite(recipeId: recipe.id)
             }
+        }
+    }
+
+    /// Confirmed GLOBAL catalog delete from a result row. Optimistically drops the
+    /// row from the local snapshot, then routes through `RecipeStore.deleteRecipe`
+    /// (which mutates the mirror + adopts the server's new catalog version/count).
+    private func confirmDelete(_ recipe: RecipeSummary) {
+        pendingDelete = nil
+        results.removeAll { $0.id == recipe.id }
+        Task {
+            await recipeStore.deleteRecipe(id: recipe.id)
+            // On failure the store force-syncs the catalog; rebuild this screen's
+            // local snapshot so the still-present recipe reappears (and isn't left
+            // silently missing from the visible results).
+            if recipeStore.lastError != nil { runQueryNow() }
         }
     }
 }

@@ -100,6 +100,40 @@ public final class IngestionStore {
         }
     }
 
+    // MARK: - Deletes
+
+    /// Delete a single job record (`DELETE /ingest/{job_id}`). Optimistically stops
+    /// polling, removes it from the published list and the mirror, then calls the
+    /// server. On failure re-pulls the server job list and records `lastError`.
+    public func deleteJob(jobId: String) async {
+        stopPolling(jobId: jobId)
+        jobs.removeAll { $0.jobId == jobId }
+        do {
+            try await mirror.deleteIngestJobLocally(jobId: jobId)
+            _ = try await client.deleteIngestJob(jobId: jobId)
+            lastError = nil
+        } catch {
+            lastError = String(describing: error)
+            await refreshFromServer()
+        }
+    }
+
+    /// Clear finished jobs (`DELETE /ingest?include_active=false`). Optimistically
+    /// removes terminal jobs from the published list and the mirror, then calls the
+    /// server (terminal-only). On failure re-pulls the server job list and records
+    /// `lastError`.
+    public func clearFinished() async {
+        jobs.removeAll { $0.status.isTerminal }
+        do {
+            try await mirror.clearIngestJobsLocally(terminalOnly: true)
+            _ = try await client.clearIngestJobs(includeActive: false)
+            lastError = nil
+        } catch {
+            lastError = String(describing: error)
+            await refreshFromServer()
+        }
+    }
+
     /// Stop polling a job (does not cancel server-side work).
     public func stopPolling(jobId: String) {
         pollTasks[jobId]?.cancel()

@@ -48,6 +48,7 @@ public struct PantryView: View {
     /// placeholder copy: "run it" vs. "nothing matched").
     @State private var hasMatched: Bool
     @State private var matchTask: Task<Void, Never>?
+    @State private var showingClearConfirm = false
 
     /// - Parameter onSelect: receives the tapped recipe's id for the integrator
     ///   to navigate to. Defaults to a no-op so the screen previews standalone.
@@ -163,13 +164,25 @@ public struct PantryView: View {
                 Spacer(minLength: Theme.Spacing.sm)
 
                 if hasPantry {
-                    Button(action: clearPantry) {
+                    Button {
+                        showingClearConfirm = true
+                    } label: {
                         Text("Clear all")
                             .font(.appCaption.weight(.semibold))
                             .foregroundStyle(Color.appDestructive)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear all pantry items")
+                    .confirmationDialog(
+                        "Clear your pantry?",
+                        isPresented: $showingClearConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Clear pantry", role: .destructive) { clearPantry() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This removes every ingredient from your pantry.")
+                    }
                 }
             }
 

@@ -51,6 +51,9 @@ public struct SettingsView: View {
     @State private var cachedRecipeCount: Int?
     @State private var isSyncing = false
     @State private var isClearingCache = false
+    @State private var isResettingLibrary = false
+    @State private var showingClearCacheConfirm = false
+    @State private var showingResetLibraryConfirm = false
     @State private var serverSettingsDirty = false
     /// The truly-active server root, read live from the client (not just the
     /// last-saved `UserDefaults` value). Loaded in `.task`.
@@ -193,9 +196,9 @@ public struct SettingsView: View {
             .buttonStyle(.plain)
             .disabled(isSyncing)
 
-            // Clear local cache.
+            // Clear local cache — now behind a confirmation (the reusable norm).
             Button(role: .destructive) {
-                Task { await clearLocalCache() }
+                showingClearCacheConfirm = true
             } label: {
                 HStack(spacing: Theme.Spacing.sm) {
                     if isClearingCache {
@@ -210,6 +213,44 @@ public struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .disabled(isClearingCache)
+            .confirmationDialog(
+                "Clear local cache?",
+                isPresented: $showingClearCacheConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Clear cache", role: .destructive) { Task { await clearLocalCache() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This empties the cached recipes on this device and forces a full re-pull on the next sync. It does not delete anything on the server.")
+            }
+
+            // Reset library — GLOBAL server wipe of every recipe.
+            Button(role: .destructive) {
+                showingResetLibraryConfirm = true
+            } label: {
+                HStack(spacing: Theme.Spacing.sm) {
+                    if isResettingLibrary {
+                        ProgressView().controlSize(.small).tint(Color.appDestructive)
+                    } else {
+                        Image(systemName: "trash.slash")
+                    }
+                    Text("Reset library")
+                        .font(.appBody.weight(.semibold))
+                }
+                .foregroundStyle(Color.appDestructive)
+            }
+            .buttonStyle(.plain)
+            .disabled(isResettingLibrary)
+            .confirmationDialog(
+                "Reset your entire library?",
+                isPresented: $showingResetLibraryConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete all recipes", role: .destructive) { Task { await resetLibrary() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently deletes ALL recipes from the server and this device. This can't be undone.")
+            }
 
             if let error = environment.sync.lastError {
                 noteRow(error, tint: Color.appDestructive)
@@ -217,7 +258,7 @@ public struct SettingsView: View {
         } header: {
             sectionHeader("Server & Sync")
         } footer: {
-            sectionFooter("Recipes are pulled only when the server's catalog version changes. Clearing the cache forces a full re-pull on the next sync.")
+            sectionFooter("Recipes are pulled only when the server's catalog version changes. Clearing the cache forces a full re-pull on the next sync; resetting the library deletes every recipe on the server.")
         }
         .listRowBackground(Color.appSurface)
     }
@@ -610,6 +651,17 @@ public struct SettingsView: View {
         try? await environment.mirror.replaceRecipes([])
         try? await environment.mirror.setCatalogVersion(0, recipeCount: 0)
         await environment.recipeStore.refresh()
+        cachedRecipeCount = await currentCachedRecipeCount()
+    }
+
+    /// GLOBAL server wipe of every recipe (`DELETE /recipes?confirm=true` via
+    /// `RecipeStore.resetLibrary`), then refresh the ingestion store (the wipe also
+    /// clears ingest jobs server-side) and re-read the cached count.
+    private func resetLibrary() async {
+        isResettingLibrary = true
+        defer { isResettingLibrary = false }
+        await environment.recipeStore.resetLibrary()
+        await environment.ingestionStore.refreshFromServer()
         cachedRecipeCount = await currentCachedRecipeCount()
     }
 

@@ -57,6 +57,9 @@ public struct HomeView: View {
     @State private var spotlightFromPantry = false
     @State private var filteredResults: [RecipeSummary] = []
 
+    // Pending GLOBAL catalog delete (a search-result row swiped Delete; confirmed).
+    @State private var pendingDelete: RecipeSummary?
+
     @State private var hasLoaded = false
 
     /// - Parameters:
@@ -85,8 +88,12 @@ public struct HomeView: View {
         // No internal `NavigationStack`: ``RootView`` wraps this screen in a
         // per-tab `NavigationStack` (with the recipe-detail destination), so card
         // taps push detail on that stack via `onOpenRecipe`.
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+        //
+        // A `List` (not a `ScrollView`) so the *search/filter result* rows get
+        // native `.swipeActions` for the GLOBAL catalog delete. The header (search
+        // field, ask card, chips) and the curated rails ride along as plain rows.
+        List {
+            composedRow {
                 SearchField(
                     text: $searchText,
                     isBusy: recipeStore.isLoading,
@@ -94,8 +101,10 @@ public struct HomeView: View {
                     onAsk: { runAsk() }
                 )
                 .padding(.horizontal, Theme.Spacing.lg)
+            }
 
-                if isAsking || askAnswer != nil || askError != nil {
+            if isAsking || askAnswer != nil || askError != nil {
+                composedRow {
                     AssistantAnswerCard(
                         isAsking: isAsking,
                         answer: askAnswer,
@@ -104,17 +113,19 @@ public struct HomeView: View {
                     )
                     .padding(.horizontal, Theme.Spacing.lg)
                 }
-
-                FilterChips(selection: $activeFilters)
-
-                if isQuerying {
-                    queryResults
-                } else {
-                    rails
-                }
             }
-            .padding(.vertical, Theme.Spacing.lg)
+
+            composedRow { FilterChips(selection: $activeFilters) }
+
+            if isQuerying {
+                queryResults
+            } else {
+                rails
+            }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, 0)
         .background(Color.appBackground)
         .navigationTitle("Discover")
         #if os(iOS)
@@ -128,6 +139,23 @@ public struct HomeView: View {
                 .tint(Color.appAccent)
                 .accessibilityLabel("Settings")
             }
+        }
+        // GLOBAL catalog delete (distinct from Saved's unfavorite): only the
+        // search/filter result rows expose this, and deleting destroys the recipe
+        // for the whole library.
+        .confirmationDialog(
+            "Delete this recipe?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { recipe in
+            Button("Delete Recipe", role: .destructive) { confirmDelete(recipe) }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { recipe in
+            Text("This permanently removes \u{201C}\(recipe.title)\u{201D} from your entire library. This can't be undone.")
         }
         .task {
             await loadInitial()
@@ -145,44 +173,52 @@ public struct HomeView: View {
     @ViewBuilder
     private var rails: some View {
         // (a) Pantry spotlight / high-protein fallback
-        Rail(
-            title: spotlightFromPantry ? "From your pantry tonight" : "High-protein picks",
-            items: spotlightResults,
-            emptyMessage: spotlightFromPantry
-                ? "Add pantry items to see what you can cook tonight"
-                : "No high-protein recipes yet",
-            emptySystemImage: spotlightFromPantry ? "cabinet" : "bolt.heart"
-        ) { recipe in
-            recipeCard(for: recipe, source: spotlightFromPantry ? nil : statedIfHasCalories(recipe))
+        composedRow {
+            Rail(
+                title: spotlightFromPantry ? "From your pantry tonight" : "High-protein picks",
+                items: spotlightResults,
+                emptyMessage: spotlightFromPantry
+                    ? "Add pantry items to see what you can cook tonight"
+                    : "No high-protein recipes yet",
+                emptySystemImage: spotlightFromPantry ? "cabinet" : "bolt.heart"
+            ) { recipe in
+                recipeCard(for: recipe, source: spotlightFromPantry ? nil : statedIfHasCalories(recipe))
+            }
         }
 
         // (b) Favorites / "Jump back in" recents fallback
         if !libraryStore.favorites.isEmpty {
-            Rail(
-                title: "Your favorites",
-                items: favoriteSummaries
-            ) { recipe in
-                recipeCard(for: recipe, source: statedIfHasCalories(recipe), isFavorite: true)
+            composedRow {
+                Rail(
+                    title: "Your favorites",
+                    items: favoriteSummaries
+                ) { recipe in
+                    recipeCard(for: recipe, source: statedIfHasCalories(recipe), isFavorite: true)
+                }
             }
         } else {
-            Rail(
-                title: "Jump back in",
-                items: recentSummaries,
-                emptyMessage: "Recipes you open show up here",
-                emptySystemImage: "clock.arrow.circlepath"
-            ) { recipe in
-                recipeCard(for: recipe, source: statedIfHasCalories(recipe))
+            composedRow {
+                Rail(
+                    title: "Jump back in",
+                    items: recentSummaries,
+                    emptyMessage: "Recipes you open show up here",
+                    emptySystemImage: "clock.arrow.circlepath"
+                ) { recipe in
+                    recipeCard(for: recipe, source: statedIfHasCalories(recipe))
+                }
             }
         }
 
         // (c) Haven't tried yet
-        Rail(
-            title: "Haven't tried yet",
-            items: notYetTriedSummaries,
-            emptyMessage: "You've explored everything — nice!",
-            emptySystemImage: "checkmark.seal"
-        ) { recipe in
-            recipeCard(for: recipe, source: statedIfHasCalories(recipe))
+        composedRow {
+            Rail(
+                title: "Haven't tried yet",
+                items: notYetTriedSummaries,
+                emptyMessage: "You've explored everything — nice!",
+                emptySystemImage: "checkmark.seal"
+            ) { recipe in
+                recipeCard(for: recipe, source: statedIfHasCalories(recipe))
+            }
         }
     }
 
@@ -191,39 +227,69 @@ public struct HomeView: View {
     @ViewBuilder
     private var queryResults: some View {
         if recipeStore.isLoading && filteredResults.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, Theme.Spacing.xl)
-                .tint(Color.appAccent)
+            composedRow {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.Spacing.xl)
+                    .tint(Color.appAccent)
+            }
         } else if let error = recipeStore.lastError, filteredResults.isEmpty {
-            EmptyState(
-                systemImage: "wifi.slash",
-                message: "Couldn't load recipes",
-                subtitle: error,
-                actionTitle: "Retry",
-                action: { runQueryNow() }
-            )
-            .padding(.horizontal, Theme.Spacing.lg)
+            composedRow {
+                EmptyState(
+                    systemImage: "wifi.slash",
+                    message: "Couldn't load recipes",
+                    subtitle: error,
+                    actionTitle: "Retry",
+                    action: { runQueryNow() }
+                )
+            }
         } else if filteredResults.isEmpty {
-            EmptyState(
-                systemImage: "magnifyingglass",
-                message: "No recipes found",
-                subtitle: "Try a different search or adjust your filters."
-            )
-            .padding(.horizontal, Theme.Spacing.lg)
+            composedRow {
+                EmptyState(
+                    systemImage: "magnifyingglass",
+                    message: "No recipes found",
+                    subtitle: "Try a different search or adjust your filters."
+                )
+            }
         } else {
-            LazyVStack(spacing: Theme.Spacing.md) {
-                ForEach(filteredResults) { recipe in
-                    recipeCard(
-                        for: recipe,
-                        style: .listRow,
-                        source: statedIfHasCalories(recipe),
-                        isFavorite: libraryStore.isFavorite(recipeId: recipe.id)
-                    )
+            ForEach(filteredResults) { recipe in
+                recipeCard(
+                    for: recipe,
+                    style: .listRow,
+                    source: statedIfHasCalories(recipe),
+                    isFavorite: libraryStore.isFavorite(recipeId: recipe.id)
+                )
+                .listRowInsets(EdgeInsets(
+                    top: Theme.Spacing.xs, leading: Theme.Spacing.lg,
+                    bottom: Theme.Spacing.xs, trailing: Theme.Spacing.lg
+                ))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        pendingDelete = recipe
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
             }
-            .padding(.horizontal, Theme.Spacing.lg)
         }
+    }
+
+    /// Wrap a header / rail / state view as a plain, full-bleed `List` row (cleared
+    /// background + separator) so it sits in the same `List` as the swipe-deletable
+    /// result rows without inheriting `List` chrome. Content supplies its own
+    /// horizontal padding (rails span edge-to-edge; the search field pads `lg`).
+    @ViewBuilder
+    private func composedRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(
+                top: Theme.Spacing.md, leading: 0,
+                bottom: Theme.Spacing.md, trailing: 0
+            ))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     // MARK: Card builder
@@ -428,6 +494,20 @@ public struct HomeView: View {
             } else {
                 await libraryStore.addFavorite(recipeId: recipe.id)
             }
+        }
+    }
+
+    /// Confirmed GLOBAL catalog delete from a search/filter result row.
+    /// Optimistically drops the row from the local snapshot, then routes through
+    /// `RecipeStore.deleteRecipe` (mirror mutate + adopt the server's version/count).
+    private func confirmDelete(_ recipe: RecipeSummary) {
+        pendingDelete = nil
+        filteredResults.removeAll { $0.id == recipe.id }
+        Task {
+            await recipeStore.deleteRecipe(id: recipe.id)
+            // On failure the store force-syncs the catalog; rebuild this screen's
+            // local snapshot so the still-present recipe reappears.
+            if recipeStore.lastError != nil { runQueryNow() }
         }
     }
 }

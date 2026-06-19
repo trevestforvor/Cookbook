@@ -124,3 +124,63 @@ public struct IngestJobList: Codable, Sendable, Hashable {
     public var jobs: [IngestJob]
     public init(jobs: [IngestJob] = []) { self.jobs = jobs }
 }
+
+// MARK: - Delete results
+
+/// `DELETE /recipes/{id}`: `{deleted, version, recipe_count}`. The `version` and
+/// `recipeCount` are the authoritative catalog state after the cascade delete —
+/// stores write them straight into the mirror's catalog meta.
+public struct DeleteRecipeResult: Codable, Sendable, Hashable {
+    public var deleted: Int
+    public var version: Int
+    public var recipeCount: Int
+
+    public init(deleted: Int, version: Int, recipeCount: Int) {
+        self.deleted = deleted; self.version = version; self.recipeCount = recipeCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case deleted, version
+        case recipeCount = "recipe_count"
+    }
+}
+
+/// `DELETE /recipes?confirm=true`: `{wiped, version, recipe_count}`. A full library
+/// reset; the server also clears ingest jobs as a side effect.
+public struct WipeResult: Codable, Sendable, Hashable {
+    public var wiped: Int
+    public var version: Int
+    public var recipeCount: Int
+
+    public init(wiped: Int, version: Int, recipeCount: Int) {
+        self.wiped = wiped; self.version = version; self.recipeCount = recipeCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case wiped, version
+        case recipeCount = "recipe_count"
+    }
+}
+
+/// `DELETE /ingest?include_active=`: `{cleared, include_active}`. Terminal-only by
+/// default; `includeActive` echoes whether running/queued jobs were also cleared.
+public struct ClearJobsResult: Codable, Sendable, Hashable {
+    public var cleared: Int
+    public var includeActive: Bool
+
+    public init(cleared: Int, includeActive: Bool) {
+        self.cleared = cleared; self.includeActive = includeActive
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case cleared
+        case includeActive = "include_active"
+    }
+}
+
+/// `DELETE /ingest/{job_id}`: `{deleted}` — the job id that was removed (mem+DB).
+public struct DeleteJobResult: Codable, Sendable, Hashable {
+    public var deleted: String
+
+    public init(deleted: String) { self.deleted = deleted }
+}

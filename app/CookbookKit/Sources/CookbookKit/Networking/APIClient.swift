@@ -216,6 +216,24 @@ public actor APIClient {
                               as: RecipesEnvelope.self).recipes
     }
 
+    // MARK: - Recipe deletes (GLOBAL — cascade catalog delete)
+
+    /// `DELETE /recipes/{recipe_id}` — destroys the recipe for the whole library and
+    /// bumps the catalog version. Returns the authoritative new version + count.
+    /// Throws `.notFound` on 404.
+    @discardableResult
+    public func deleteRecipe(id: Int) async throws -> DeleteRecipeResult {
+        try await send(.delete, path: "/recipes/\(id)", as: DeleteRecipeResult.self)
+    }
+
+    /// `DELETE /recipes?confirm=true` — wipe the entire library (requires `confirm`,
+    /// else the server 400s). Returns the new version + count after the wipe.
+    @discardableResult
+    public func wipeRecipes(confirm: Bool = true) async throws -> WipeResult {
+        let items = [URLQueryItem(name: "confirm", value: confirm ? "true" : "false")]
+        return try await send(.delete, path: "/recipes", queryItems: items, as: WipeResult.self)
+    }
+
     // MARK: - STATE
 
     /// `GET /state` — single-round-trip hydrate.
@@ -385,6 +403,22 @@ public actor APIClient {
     /// `GET /ingest`
     public func ingestJobs() async throws -> [IngestJob] {
         try await send(.get, path: "/ingest", as: IngestJobList.self).jobs
+    }
+
+    /// `DELETE /ingest/{job_id}` — remove a single job record (mem+DB). Throws
+    /// `.notFound` on 404.
+    @discardableResult
+    public func deleteIngestJob(jobId: String) async throws -> DeleteJobResult {
+        let encoded = jobId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? jobId
+        return try await send(.delete, path: "/ingest/\(encoded)", as: DeleteJobResult.self)
+    }
+
+    /// `DELETE /ingest?include_active=` — clear job records. Terminal-only by default;
+    /// pass `includeActive: true` to also clear running/queued jobs.
+    @discardableResult
+    public func clearIngestJobs(includeActive: Bool = false) async throws -> ClearJobsResult {
+        let items = [URLQueryItem(name: "include_active", value: includeActive ? "true" : "false")]
+        return try await send(.delete, path: "/ingest", queryItems: items, as: ClearJobsResult.self)
     }
 
     /// `POST /ingest` (multipart). Uploads a PDF and returns the queued job handle.

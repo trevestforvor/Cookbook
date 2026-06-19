@@ -8,8 +8,9 @@ The SwiftUI presentation layer: every screen, reusable component, and the theme.
 
 - `App/` — `RootView` (tab/nav shell) + `RecipeRouter` (deep-link/navigation).
 - `Screens/` — `HomeView`, `BrowseView`, `RecipeDetailView`, `AssistantView`, `PantryView`, `PlannerView`, `SavedView`, `ImportView`, `SettingsView`, `PlaceholderScreen`, `HomePreviewData` (demo seed).
-- `Components/` — `RecipeCard`, `RecipeImageSlot`, `SearchField`, `AssistantAnswerCard`, `FilterChips`, `Rail`, `MacroLine`, `FavoriteHeart`, `PrepTimeBadge`, `EmptyState`, `PreviewSamples`.
+- `Components/` — `RecipeCard`, `RecipeImageSlot`, `SearchField`, `AssistantAnswerCard`, `FilterChips`, `Rail`, `MacroLine`, `FavoriteHeart`, `PrepTimeBadge`, `EmptyState`, `JobsList`, `PreviewSamples`.
 - `Theme/` — `Theme`, `Color+Hex`, `Spacing`, `Typography`, `NutritionProvenance`, `ThemePreview`.
+- `Screens/ActivityView` — the modal ingestion-jobs sheet raised from the Assistant.
 
 ## Local Contracts
 
@@ -18,6 +19,13 @@ The SwiftUI presentation layer: every screen, reusable component, and the theme.
 - **The Ask flow surfaces a response.** Search/chat "Ask" calls `recipeStore.ask` and renders the reply in `AssistantAnswerCard` (thinking / answer / error states) with a busy indicator on `SearchField` (`isBusy`). The answer must be visible — not just a silent recipe-list update. Keep both HomeView and BrowseView wired (`runAsk`/`dismissAsk`).
 - **Images via Nuke `LazyImage`** only (parent contract). `RecipeImageSlot` is the shared placeholder.
 - **Theme API is flat static properties** (e.g. `Theme.Shadow.*`), not nested structs — match existing usage.
+- **Delete semantics — two kinds, never conflated:**
+  - **GLOBAL catalog delete** (`RecipeStore.deleteRecipe(id:)` → `DELETE /recipes/{id}`, a CASCADE that destroys the recipe for the *whole* library and bumps the catalog version). Surfaced **only** on: `RecipeDetailView` (destructive "Delete Recipe" in the toolbar `ellipsis.circle` menu → pops the page via `onClose`/`dismiss`), and the catalog/search **result rows** in `BrowseView.resultsSection` + `HomeView.queryResults` (trailing `.swipeActions` destructive Delete). **Every** catalog-delete entry point is gated by a `.confirmationDialog` (destructive role) first.
+  - **Non-destructive remove** (unfavorite / remove-from-history) lives on `SavedView` and **stays there** — never add catalog delete to Saved's favorites/recents/cooked rows.
+  - **HomeView rails are exempt:** the curated rails (pantry / favorites / not-yet-tried) carry no swipe-delete; only the flat search/filter result rows do. (Same in Browse — those screens are now a `List`, not a `ScrollView`, so `.swipeActions` work; header/rail content rides along via the per-screen `composedRow` helper with cleared list chrome.)
+- **`JobsList` is the single ingestion-jobs renderer (DRY).** It owns `JobRow` + the `IngestStage` timeline; both `ImportView`'s jobs section and the Activity sheet use it. Per-row delete is a **swipe** action with **no confirm** (it only drops a history row via `IngestionStore.deleteJob`); **"Clear finished"** *is* confirmed (`IngestionStore.clearFinished`, terminal-only). `DONE` rows do **not** auto-expand their timeline; `ERROR` rows stay visible.
+- **Activity is a `.sheet` (modal), never a nested `NavigationStack`.** It's raised from `AssistantView`'s toolbar (badge = count of in-progress jobs). The Assistant tab already hosts its own `NavigationStack`, so pushing would conflict — present modally and route finished-job result-chip taps back through `onOpenRecipe` after `dismiss()`.
+- **Confirmation is the destructive-action norm.** Any destructive action (catalog delete, reset library, clear cache, clear pantry, clear-finished) goes behind a `.confirmationDialog` with a destructive-role confirm + a cancel. `SettingsView.resetLibrary` (`RecipeStore.resetLibrary` then `IngestionStore.refreshFromServer`), `SettingsView.clearLocalCache`, and `PantryView.clearPantry` all follow this.
 
 ## Work Guidance
 

@@ -96,6 +96,61 @@ public final class RecipeStore {
         selectedRecipe = nil
     }
 
+    // MARK: - Deletes (GLOBAL — cascade catalog delete)
+    //
+    // `DELETE /recipes/{id}` and `DELETE /recipes?confirm=true` destroy recipes for
+    // the whole library and bump the catalog version. Optimistic: mutate the mirror,
+    // republish, then call the server and write back its authoritative version+count.
+    // On failure, force a catalog re-sync to restore the (still-present) recipe.
+
+    /// Delete a single recipe globally. Optimistically removes it from the local
+    /// mirror and the published list, then calls the server and adopts the returned
+    /// authoritative catalog version/count. On failure, forces a catalog re-sync to
+    /// restore the row and records `lastError`.
+    public func deleteRecipe(id: Int) async {
+        do {
+            try await mirror.deleteRecipeLocally(id: id)
+            await refresh()
+            if selectedRecipe?.id == id { selectedRecipe = nil }
+            let res = try await client.deleteRecipe(id: id)
+            try await mirror.setCatalogVersion(res.version, recipeCount: res.recipeCount)
+            lastError = nil
+        } catch {
+            // Any failure (local cache or server) leaves the optimistic removal
+            // unreconciled — force a catalog re-sync to restore the truth.
+            lastError = String(describing: error)
+            await sync.syncCatalog(force: true)
+            await refresh()
+        }
+    }
+
+    /// Wipe the entire library (`DELETE /recipes?confirm=true`). Calls the server
+    /// first for the authoritative count/version, then clears the local mirror and
+    /// republishes. The server wipe also clears ingest jobs, so the caller should
+    /// refresh the `IngestionStore` afterward — returns `true` on success so the view
+    /// can chain that refresh. On failure records `lastError` and returns `false`.
+    @discardableResult
+    public func resetLibrary() async -> Bool {
+        do {
+            let res = try await client.wipeRecipes()
+            // Server is wiped. Reconcile the mirror to match; if the local write
+            // fails, force a catalog re-sync so the mirror still converges to truth.
+            do {
+                try await mirror.wipeRecipesLocally()
+                try await mirror.setCatalogVersion(res.version, recipeCount: res.recipeCount)
+            } catch {
+                await sync.syncCatalog(force: true)
+            }
+            selectedRecipe = nil
+            await refresh()
+            lastError = nil
+            return true
+        } catch {
+            lastError = String(describing: error)
+            return false
+        }
+    }
+
     // MARK: - Returning fetchers (promoted from screen agents)
     //
     // These are *returning* one-shot helpers that do NOT touch the shared

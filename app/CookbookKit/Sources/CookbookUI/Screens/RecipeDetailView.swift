@@ -33,6 +33,10 @@ import CookbookKit
 ///   a "+ Plan" flow the host owns). The screen itself has no `NavigationStack`.
 public struct RecipeDetailView: View {
     @Environment(CookbookEnvironment.self) private var environment
+    /// Used to pop the pushed detail page after a global catalog delete when the
+    /// host didn't supply an `onClose` (the default NavigationStack push path —
+    /// `RootView` relies on the stack's own back button, so it passes no `onClose`).
+    @Environment(\.dismiss) private var dismiss
 
     public let recipeId: Int
     public var onClose: (() -> Void)?
@@ -55,6 +59,9 @@ public struct RecipeDetailView: View {
     @State private var showScaleSheet = false
     @State private var showSubstituteSheet = false
     @State private var substituteSeed: String?
+
+    // Global (catalog) delete confirmation.
+    @State private var showDeleteConfirm = false
 
     public init(
         recipeId: Int,
@@ -119,6 +126,18 @@ public struct RecipeDetailView: View {
             )
             .presentationDetentsCompat()
         }
+        // GLOBAL catalog delete (not the same as Saved's unfavorite): destroys the
+        // recipe for the whole library, then pops this page.
+        .confirmationDialog(
+            "Delete this recipe?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Recipe", role: .destructive) { deleteRecipe() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes \u{201C}\(detail?.title ?? "this recipe")\u{201D} from your entire library — not just your favorites. This can't be undone.")
+        }
     }
 
     // MARK: Toolbar
@@ -143,6 +162,20 @@ public struct RecipeDetailView: View {
             ) {
                 toggleFavorite()
             }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete Recipe", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .tint(Color.appAccent)
+            .accessibilityLabel("More actions")
+            .disabled(detail == nil)
         }
     }
 
@@ -611,6 +644,21 @@ public struct RecipeDetailView: View {
                 await libraryStore.removeFavorite(recipeId: recipeId)
             } else {
                 await libraryStore.addFavorite(recipeId: recipeId)
+            }
+        }
+    }
+
+    /// GLOBAL catalog delete: routes through `RecipeStore.deleteRecipe(id:)` (which
+    /// optimistically drops it from the local mirror and adopts the server's new
+    /// catalog version/count), then pops this page. Prefers the host's `onClose`
+    /// when supplied; otherwise falls back to the NavigationStack's own `dismiss`.
+    private func deleteRecipe() {
+        Task {
+            await environment.recipeStore.deleteRecipe(id: recipeId)
+            if let onClose {
+                onClose()
+            } else {
+                dismiss()
             }
         }
     }

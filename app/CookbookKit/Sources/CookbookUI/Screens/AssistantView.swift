@@ -38,6 +38,7 @@ public struct AssistantView: View {
     @State private var sendTask: Task<Void, Never>?
 
     @State private var connectivity = ConnectivityModel()
+    @State private var showingActivity = false
     @FocusState private var inputFocused: Bool
 
     /// - Parameters:
@@ -66,6 +67,17 @@ public struct AssistantView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    activityButton
+                }
+            }
+        }
+        // Modal (not pushed): the Assistant tab already owns a `NavigationStack`, so
+        // a nested one for Activity would conflict. The sheet hands recipe taps back
+        // through `onOpenRecipe` after dismissing itself.
+        .sheet(isPresented: $showingActivity) {
+            ActivityView(onOpenRecipe: onOpenRecipe)
         }
         .task {
             // Best-effort connectivity watch for the lifetime of the screen.
@@ -75,6 +87,42 @@ public struct AssistantView: View {
             sendTask?.cancel()
             connectivity.stop()
         }
+    }
+
+    // MARK: Activity entry
+
+    /// Count of imports still working — surfaced as a badge on the Activity button.
+    private var importingCount: Int {
+        environment.ingestionStore.jobs.filter {
+            $0.status == .queued || $0.status == .running
+        }.count
+    }
+
+    private var activityButton: some View {
+        Button {
+            showingActivity = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "tray.full")
+                if importingCount > 0 {
+                    Text("\(importingCount)")
+                        .font(.system(size: 11, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule(style: .continuous).fill(Color.appAccent))
+                        .offset(x: 10, y: -8)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .tint(Color.appAccent)
+        .accessibilityLabel(
+            importingCount > 0
+                ? "Activity, \(importingCount) importing"
+                : "Activity"
+        )
     }
 
     // MARK: Transcript
