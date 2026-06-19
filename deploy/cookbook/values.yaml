@@ -8,10 +8,10 @@ userspace:
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
   # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
-  # semver tags). sha-183238b adds the conversational recipe builder
-  # (/recipes/compose) on top of the delete/wipe endpoints. Bump on each
-  # new CI image.
-  tag: "sha-183238b"
+  # semver tags). sha-15d8bb1 = opencv-python-headless fix — the prior sha-183238b
+  # crash-looped the pod (`import cv2` needs GUI libs absent from the slim image;
+  # CI now smoke-tests the image actually starts). Bump on each new CI image.
+  tag: "sha-15d8bb1"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user
