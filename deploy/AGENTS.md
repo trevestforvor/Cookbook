@@ -22,6 +22,10 @@ This is a packaging boundary, not application code.
 - **Build context is the repo root.** The Dockerfile reaches up for `src/`,
   `pyproject.toml`, `config.yaml`, and the seed DB. The root `.dockerignore` keeps the
   Swift app and the entire (gitignored) `data/` out of the image.
+- **The image sets `COOKBOOK_ROOT=/app`.** `pip install` puts the package in
+  site-packages, so `config.py`'s `parents[2]` heuristic can't find `config.yaml` or the
+  `data/` volume — the image MUST export `COOKBOOK_ROOT=/app` (config + data both live
+  there). Don't drop it. See `src/cookbook_kb/AGENTS.md` for the resolution contract.
 - **Seed DB is a committed snapshot at `deploy/seed/cookbook.sqlite`** — NOT the live
   `data/db/cookbook.sqlite`, which is gitignored and would be absent on a CI checkout.
   The entrypoint copies it into the volume only if empty. To refresh the seed
@@ -32,9 +36,15 @@ This is a packaging boundary, not application code.
 - **Persistence.** `/app/data` (SQLite DB + uploaded PDFs) is a `hostPath` volume under
   `userspace.appData`. The entrypoint seeds the DB only if the volume is empty — never
   clobber a populated volume.
-- **Secrets are never committed.** `values.yaml` ships `REPLACE_ME` placeholders; real
-  keys are supplied at `helm install` via `--set`. Mint `COOKBOOK_API_TOKEN` once and
-  give the same value to the app.
+- **Secrets are never committed, and are supplied via Olares `envs:` — NOT `--set`.**
+  An Olares **marketplace install never runs `helm install --set`**, so placeholder
+  values in `values.yaml` can't be overridden that way and no input fields appear.
+  Instead, every user-supplied value (`COOKBOOK_API_TOKEN`, `LITELLM_API_KEY`,
+  `LITELLM_BASE_URL`, `BRAVE_API_KEY`) is declared in `OlaresManifest.yaml` under
+  `envs:` (Olares renders these as editable fields at install/settings time) and read in
+  the template via `{{ index (.Values.olaresEnv | default dict) "NAME" | default "" }}`.
+  `values.yaml` ships `olaresEnv: {}`. Mint `COOKBOOK_API_TOKEN` once (`openssl rand
+  -hex 32`) and enter the same value in the app's Settings.
 - **GHCR image must be public** for Olares nodes to pull it.
 
 ## Work Guidance

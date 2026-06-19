@@ -6,10 +6,10 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.0
-  versionName: '1.0.0'
+  version: 1.0.2
+  versionName: '1.0.2'
   categories:
-    - Utilities
+    - Productivity
 entrances:
   - name: cookbook
     host: cookbook
@@ -21,7 +21,17 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.0'
+  versionName: '1.0.2'
+  upgradeDescription: |
+    v1.0.2 -- config fix: the secrets (LITELLM_API_KEY, BRAVE_API_KEY,
+    COOKBOOK_API_TOKEN) and LITELLM_BASE_URL are now declared as Olares `envs:`
+    fields, so they show up as editable inputs in the app's install / settings
+    UI. v1.0.1 hardcoded REPLACE_ME placeholders that a marketplace install
+    (which never runs `helm --set`) had no way to override, so the pod booted
+    with junk secrets and rejected every request.
+    v1.0.1 -- image-pull fix: values.yaml pinned the image to tag 1.0.0, which
+    does not exist on GHCR (only sha-<commit> and latest are published), so the
+    pod hit ImagePullBackOff. Repinned to the immutable CI tag sha-8106a68.
   fullDescription: |
     Cookbook KB is the backend for the native Cookbook app (iPhone, iPad, Mac).
     It is a self-hosted FastAPI service that ingests recipes (from PDFs, including
@@ -53,7 +63,7 @@ spec:
     - zh-CN
   license:
     - text: MIT
-  category: Utilities
+  category: Productivity
   requiredMemory: 1Gi
   limitedMemory: 2Gi
   requiredCpu: '1'
@@ -73,3 +83,32 @@ options:
     - type: system
       name: olares
       version: '>=1.12.3-0'
+envs:
+  - envName: COOKBOOK_API_TOKEN
+    required: true
+    type: password
+    editable: true
+    applyOnChange: true
+    default: ""
+    description: "Bearer token the API requires on every request (the public entrance's only protection). Mint with: openssl rand -hex 32. Enter the SAME value in the Cookbook app's Settings."
+  - envName: LITELLM_API_KEY
+    required: true
+    type: password
+    editable: true
+    applyOnChange: true
+    default: ""
+    description: "API key for the LiteLLM / OpenAI-compatible gateway used for LLM-assisted recipe parsing (Bearer)."
+  - envName: LITELLM_BASE_URL
+    required: false
+    type: string
+    editable: true
+    applyOnChange: true
+    default: "https://litellm.trevestforvorolares.olares.com/v1"
+    description: "OpenAI-compatible base URL for the LiteLLM gateway (public entrance + /v1). Override on a different Olares box."
+  - envName: BRAVE_API_KEY
+    required: false
+    type: password
+    editable: true
+    applyOnChange: true
+    default: ""
+    description: "Optional Brave Search API key for web recipe ingestion. Leave blank to disable web search."

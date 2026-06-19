@@ -1,6 +1,7 @@
 ---
-# Non-secret configuration. Secrets are passed via env below from values.yaml
-# (Helm value templates) -- they are NOT stored in this ConfigMap.
+# Static, non-secret configuration. The user-supplied values (LITELLM_BASE_URL
+# plus the secrets) are injected as env below from the Olares `envs:` fields,
+# NOT stored here.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,7 +11,6 @@ data:
   COOKBOOK_API_HOST: "0.0.0.0"
   COOKBOOK_API_PORT: "8000"
   COOKBOOK_DB_PATH: "/app/data/db/cookbook.sqlite"
-  LITELLM_BASE_URL: "{{ .Values.env.LITELLM_BASE_URL }}"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -47,14 +47,19 @@ spec:
             - configMapRef:
                 name: cookbook-env
           env:
-            # Secrets injected from values at render time (placeholders in the
-            # committed values.yaml -- set real values before install).
+            # User-supplied config. Olares injects whatever the user types into
+            # the OlaresManifest `envs:` fields (editable in the app's install /
+            # settings UI) as .Values.olaresEnv.<name>. The `default` keeps
+            # helm lint/template resolving off-device and gives empty secrets a
+            # safe value before the user fills them in.
+            - name: LITELLM_BASE_URL
+              value: "{{ index (.Values.olaresEnv | default dict) "LITELLM_BASE_URL" | default "https://litellm.trevestforvorolares.olares.com/v1" }}"
             - name: LITELLM_API_KEY
-              value: "{{ .Values.env.LITELLM_API_KEY }}"
+              value: "{{ index (.Values.olaresEnv | default dict) "LITELLM_API_KEY" | default "" }}"
             - name: BRAVE_API_KEY
-              value: "{{ .Values.env.BRAVE_API_KEY }}"
+              value: "{{ index (.Values.olaresEnv | default dict) "BRAVE_API_KEY" | default "" }}"
             - name: COOKBOOK_API_TOKEN
-              value: "{{ .Values.env.COOKBOOK_API_TOKEN }}"
+              value: "{{ index (.Values.olaresEnv | default dict) "COOKBOOK_API_TOKEN" | default "" }}"
           readinessProbe:
             httpGet:
               path: /

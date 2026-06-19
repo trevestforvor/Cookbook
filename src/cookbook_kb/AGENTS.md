@@ -29,6 +29,7 @@ The REST boundary:
 - **Layer discipline.** A change belongs in exactly one layer. Functions stay pure/deterministic; tools only wrap; the agent only loops; the harness owns state. Don't reach across layers.
 - **Never invent data.** The agent's system prompt forbids inventing recipes, calories, times, or quantities — only tool-returned values. Preserve that guarantee in any prompt/agent edit.
 - **The model substrate is shared and rate-sensitive.** `jina` embeds serialize under concurrent load (see `llm/AGENTS.md`). Server code must not fan out concurrent embeds or re-embed the same string; use the cache in `retrieve/semantic.py`.
+- **Config root is resolved, not assumed.** `config.py` derives `ROOT` (the dir holding `config.yaml` + the `data/` tree) via `_resolve_root()`: `COOKBOOK_ROOT` env wins, else `parents[2]` **iff** it actually contains `config.yaml` (the `src/` dev layout), else the CWD. Do NOT revert to a bare `Path(__file__).parents[2]` — `pip install` puts the package in site-packages where that overshoots, which crash-looped the Olares image and pushed `data/` off the persistent volume. `COOKBOOK_CONFIG` overrides the config file path; the container sets `COOKBOOK_ROOT=/app`.
 
 ## Work Guidance
 
