@@ -64,14 +64,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # A `docker build` never imports the app, so a runtime-only crash (e.g. a
-      # missing shared lib for a wheel) ships a green build that crash-loops the pod.
-      # Actually RUN the image and import the app so CI fails loudly instead.
-      - name: Smoke test — the image starts
+      # A `docker build` never RUNS the app, so a runtime crash (missing wheel lib,
+      # uvicorn startup failure) ships a green build that crash-loops the pod (Olares
+      # entrance then 421s). Actually start the container and curl /health so CI fails
+      # loudly — and print container logs to surface the crash.
+      - name: Smoke test — the image serves /health
         run: |
-          echo "Importing the app inside the freshly built image…"
-          docker run --rm "${IMAGE}:latest" \
-            python -c "import cookbook_kb.api.app; print('container import OK')"
+          set -e
+          docker run -d --name cb -p 8000:8000 -e COOKBOOK_API_TOKEN="" "${IMAGE}:latest"
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:8000/health; then echo; echo "SERVES /health OK"; ok=1; break; fi
+            sleep 3
+          done
+          echo "----- container logs -----"; docker logs cb 2>&1 | tail -60
+          docker rm -f cb >/dev/null 2>&1 || true
+          [ "$ok" = 1 ] || { echo "::error::container never served /health"; exit 1; }
 
       - name: Reminder
         run: |
