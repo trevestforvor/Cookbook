@@ -29,6 +29,52 @@ def delete_recipe(conn: sqlite3.Connection, recipe_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def _rebuild_fts_ingredient_names(conn: sqlite3.Connection, recipe_id: int) -> None:
+    """Re-derive the recipe's `recipes_fts.ingredient_names` from its CURRENT lines.
+    The FTS mirror has no triggers, so any ingredient edit must refresh it by hand."""
+    names = " ".join(row[0] for row in conn.execute(
+        "SELECT i.canonical_name FROM recipe_ingredients ri "
+        "JOIN ingredients i ON i.id = ri.ingredient_id "
+        "WHERE ri.recipe_id = ? ORDER BY ri.position", (recipe_id,)))
+    conn.execute("UPDATE recipes_fts SET ingredient_names = ? WHERE rowid = ?",
+                 (names, recipe_id))
+
+
+def remove_ingredient(conn: sqlite3.Connection, recipe_id: int, ingredient: str):
+    """Drop ingredient line(s) matching `ingredient` (case-insensitive substring on
+    canonical name OR raw text) from ONE recipe, then refresh its FTS mirror.
+
+    Returns the list of removed `raw_text` lines (possibly empty if nothing matched),
+    or None if the recipe doesn't exist. The caller recomputes nutrition and bumps
+    the catalog version — kept out of here so the store layer stays pure SQL.
+    """
+    if conn.execute("SELECT 1 FROM recipes WHERE id = ?", (recipe_id,)).fetchone() is None:
+        return None
+    needle = str(ingredient or "").strip().lower()
+    if not needle:                       # blank match would delete the whole list
+        return []
+    # Match the canonical NAME only — never raw_text, which holds quantities/notes
+    # ("broth (no onion)") and would false-positive. Try an EXACT name first (the
+    # safe common case); only widen to a substring match when nothing is named
+    # exactly that, so "onion" doesn't auto-nuke "onion powder" when a plain
+    # "onion" line exists. Always scoped to this one recipe.
+    base = ("SELECT ri.id, ri.raw_text FROM recipe_ingredients ri "
+            "JOIN ingredients i ON i.id = ri.ingredient_id "
+            "WHERE ri.recipe_id = ? AND ")
+    rows = conn.execute(base + "lower(i.canonical_name) = ?", (recipe_id, needle)).fetchall()
+    if not rows:
+        rows = conn.execute(base + "lower(i.canonical_name) LIKE ?",
+                            (recipe_id, f"%{needle}%")).fetchall()
+    removed = [r["raw_text"] for r in rows]
+    if rows:
+        ph = ",".join("?" * len(rows))
+        conn.execute(f"DELETE FROM recipe_ingredients WHERE id IN ({ph})",
+                     [r["id"] for r in rows])
+        _rebuild_fts_ingredient_names(conn, recipe_id)
+        conn.commit()
+    return removed
+
+
 def wipe_library(conn: sqlite3.Connection) -> int:
     """Empty the recipe library back to zero. Returns the pre-wipe recipe count.
 

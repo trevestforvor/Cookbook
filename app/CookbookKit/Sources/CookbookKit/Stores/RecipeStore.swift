@@ -199,12 +199,16 @@ public final class RecipeStore {
     /// Single-shot assistant turn (`POST /ask`). Returns the answer string, or `nil`
     /// (recording `lastError`) on failure. The backend agent may mutate server state,
     /// so a `/state` re-hydrate is performed afterward to keep the library fresh.
-    public func ask(message: String, maxIters: Int? = nil) async -> String? {
+    public func ask(message: String, history: [AskTurn]? = nil, maxIters: Int? = nil) async -> String? {
         do {
-            let result = try await client.ask(message: message, maxIters: maxIters)
+            let result = try await client.ask(message: message, history: history, maxIters: maxIters)
             lastError = nil
-            // The agent can write favorites/pantry/etc. server-side; reconcile.
+            // The agent can write favorites/pantry/etc. (→ /state) AND the recipe
+            // catalog itself (import / delete_recipe / remove_ingredient bump the
+            // version). Reconcile both, or the library silently won't reflect the
+            // change the agent just made. syncCatalog is version-gated → cheap no-op.
             await sync.hydrateState()
+            await sync.syncCatalog()
             return result.answer
         } catch {
             lastError = String(describing: error)

@@ -102,11 +102,16 @@ public final class SyncService {
 
     // MARK: - /ask side effects
 
-    /// Run an `/ask` and ALWAYS re-pull `/state` afterwards — the agent can mutate
-    /// favorites/pantry/preferences server-side, so the local mirror must re-hydrate.
-    public func ask(message: String, maxIters: Int? = nil) async throws -> AskResult {
-        let result = try await client.ask(message: message, maxIters: maxIters)
-        await hydrateState()  // mandatory: the agent may have changed state
+    /// Run an `/ask` and ALWAYS reconcile afterwards. The agent can mutate
+    /// favorites/pantry/preferences (→ re-hydrate `/state`) AND the recipe catalog
+    /// itself — import_recipe_from_url / delete_recipe / remove_ingredient all bump
+    /// the catalog version — so we must also re-sync the recipe mirror or the app
+    /// silently won't show what the agent just added or removed.
+    public func ask(message: String, history: [AskTurn]? = nil,
+                    maxIters: Int? = nil) async throws -> AskResult {
+        let result = try await client.ask(message: message, history: history, maxIters: maxIters)
+        await hydrateState()   // mandatory: the agent may have changed app state
+        await syncCatalog()    // version-gated: cheap no-op unless the catalog changed
         return result
     }
 }

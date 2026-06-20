@@ -561,6 +561,13 @@ public struct AssistantView: View {
             return
         }
 
+        // Snapshot the conversation BEFORE this turn so the agent can resolve
+        // "that one" / "number 2" / follow-up edits. Skip error bubbles — they're
+        // UI noise, not real assistant turns. (agent.run caps the length server-side.)
+        let history = messages
+            .filter { !$0.isError }
+            .map { AskTurn(role: $0.role == .user ? "user" : "assistant", content: $0.text) }
+
         messages.append(ChatMessage(role: .user, text: text))
         draft = ""
         isThinking = true
@@ -569,10 +576,10 @@ public struct AssistantView: View {
         sendTask?.cancel()
         sendTask = Task {
             // The promoted `RecipeStore.ask` is non-throwing (returns nil on
-            // failure, recording `lastError`) and re-hydrates `/state` afterward so
-            // any server-side mutations the agent makes (favorites, pantry, …) show
-            // up in the library.
-            let answer = await store.ask(message: text)
+            // failure, recording `lastError`) and reconciles `/state` + the recipe
+            // catalog afterward so any server-side mutations the agent makes
+            // (favorites, pantry, imports, deletes, …) show up in the library.
+            let answer = await store.ask(message: text, history: history)
             guard !Task.isCancelled else { return }
             if let answer {
                 appendAssistant(ChatMessage(role: .assistant, text: answer))

@@ -128,11 +128,22 @@ public struct SaveShoppingListBody: Codable, Sendable {
     public init(name: String, items: JSONValue) { self.name = name; self.items = items }
 }
 
+/// One prior conversation turn, resent to `/ask` so the agent can resolve
+/// references like "that one" / "number 2" and follow-up edits across turns.
+public struct AskTurn: Codable, Sendable {
+    public var role: String      // "user" | "assistant"
+    public var content: String
+    public init(role: String, content: String) { self.role = role; self.content = content }
+}
+
 public struct AskBody: Codable, Sendable {
     public var message: String
+    public var history: [AskTurn]?
     public var maxIters: Int?
-    public init(message: String, maxIters: Int? = nil) { self.message = message; self.maxIters = maxIters }
-    private enum CodingKeys: String, CodingKey { case message; case maxIters = "max_iters" }
+    public init(message: String, history: [AskTurn]? = nil, maxIters: Int? = nil) {
+        self.message = message; self.history = history; self.maxIters = maxIters
+    }
+    private enum CodingKeys: String, CodingKey { case message; case history; case maxIters = "max_iters" }
 }
 
 public struct MealPlanBody: Codable, Sendable {

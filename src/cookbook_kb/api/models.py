@@ -7,9 +7,9 @@ GET query params are declared inline in the routers (FastAPI `Query`).
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── STATE write-through bodies ───────────────────────────────────────────────
@@ -53,11 +53,21 @@ class ShoppingListSaveIn(BaseModel):
 
 
 # ── INTELLIGENCE bodies ──────────────────────────────────────────────────────
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class AskIn(BaseModel):
     message: str
-    # 4 ReAct turns is plenty for recipe Q&A (search → maybe detail → answer) and
-    # bounds /ask latency; the agent stops early once it produces a prose answer.
-    max_iters: int = 4
+    # Prior turns, oldest→newest, so the agent can resolve "that one"/"number 2" and
+    # multi-step edits. The server stays stateless: the client owns the thread and
+    # resends it (same contract as /recipes/compose). agent.run caps the length.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=200)
+    # 8 ReAct turns covers Q&A (search → detail → answer) AND a small edit chain
+    # (find → confirm → delete_recipe/remove_ingredient); the agent stops early once
+    # it produces a prose answer, so this is a ceiling, not a fixed cost.
+    max_iters: int = 8
 
 
 class MealPlanIn(BaseModel):

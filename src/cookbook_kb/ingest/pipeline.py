@@ -296,3 +296,40 @@ def ingest_one_url(
     result["catalog_version"] = summary["catalog_version"]
     progress("done", 1, 1)
     return result
+
+
+# ── single composed-recipe ingest (shared by /compose/save + the agent tool) ──
+def ingest_one_recipe(
+    conn: sqlite3.Connection,
+    raw: dict,
+    *,
+    title: str | None = None,
+    canon: Canonicalizer | None = None,
+    matcher: FoodMatcher | None = None,
+    model: str | None = None,
+) -> dict:
+    """Persist ONE already-structured recipe (the extraction `RawRecipe` shape)
+    end-to-end: normalize (canonicalize ingredients + FDC compute-nutrition
+    fallback) → load FORCE-CANONICAL (no apply_dedup — a user-built recipe is
+    always its own canonical row) → finalize (incremental embed + catalog bump).
+
+    The DRY core behind both POST /recipes/compose/save and the agent's
+    `save_recipe` tool. Returns {recipe_id, catalog_version, recipe_count}, or
+    {"error": ...} when the recipe is too empty to save / fails to load.
+    """
+    from ..store import catalog
+
+    if not (raw.get("ingredients") and raw.get("instructions")):
+        return {"error": "a recipe needs at least one ingredient and one step to save"}
+
+    canon = canon or build_canon()
+    matcher = matcher or FoodMatcher(conn)
+    normalized = normalize_recipe(raw, canon, matcher=matcher, conn=conn)
+    meta = {"title": normalized.get("title") or title or "Composed recipe",
+            "author": None, "source_path": None}
+    new_ids = load_recipes(conn, meta, [normalized])
+    if not new_ids:
+        return {"error": "could not save the composed recipe"}
+    summary = finalize_ingest(conn, new_ids, model=model)
+    return {"recipe_id": new_ids[0], "catalog_version": summary["catalog_version"],
+            "recipe_count": catalog.recipe_count(conn)}

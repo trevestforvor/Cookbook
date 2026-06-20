@@ -187,3 +187,33 @@ def compute_nutrition(
         return None
     divisor = servings if servings and servings > 0 else 1
     return {k: round(v / divisor, 1) for k, v in totals.items()}
+
+
+def recompute_recipe_nutrition(conn: sqlite3.Connection, recipe_id: int):
+    """Recompute a recipe's per-serving panel from its CURRENT ingredient lines —
+    used after an ingredient edit. Only acts on recipes whose `nutrition_source` is
+    'computed'; a 'stated' panel came from the source and we never overwrite it with
+    an estimate. Returns the new panel, or None if it was left untouched.
+
+    Grams follow the same rule as the ingest pipeline: a line counts only when its
+    base unit is grams (volume/count without density can't be summed reliably).
+    """
+    row = conn.execute(
+        "SELECT nutrition_source, servings FROM recipes WHERE id = ?", (recipe_id,)).fetchone()
+    if row is None or row["nutrition_source"] != "computed":
+        return None
+    grams_by_food = [
+        (ing["fid"], ing["qn"] if ing["unit"] == "g" else None)
+        for ing in conn.execute(
+            "SELECT i.food_id AS fid, ri.quantity_normalized AS qn, ri.normalized_unit AS unit "
+            "FROM recipe_ingredients ri JOIN ingredients i ON i.id = ri.ingredient_id "
+            "WHERE ri.recipe_id = ?", (recipe_id,))]
+    panel = compute_nutrition(grams_by_food, conn, row["servings"])
+    if panel is None:
+        return None
+    cols = [c[: -len("_per_100g")] for c in _COLS]   # → calories_kcal, protein_g, …
+    conn.execute(
+        f"UPDATE recipes SET {', '.join(f'{c} = ?' for c in cols)} WHERE id = ?",
+        (*[panel.get(c) for c in cols], recipe_id))
+    conn.commit()
+    return panel

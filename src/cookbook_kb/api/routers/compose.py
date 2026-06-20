@@ -42,14 +42,10 @@ from pydantic import BaseModel, ValidationError
 
 from ...extract.schema import RawRecipe
 from ...harness.state import preferences_prompt
-from ...ingest.pipeline import build_canon, finalize_ingest
+from ...ingest.pipeline import build_canon, ingest_one_recipe
 from ...ingest.url import parse_recipe_from_url
 from ...llm.client import extract_json
-from ...normalize.canonical import Canonicalizer
 from ...normalize.foods import FoodMatcher
-from ...normalize.pipeline import normalize_recipe
-from ...store import catalog
-from ...store.load import load_recipes
 from ...subagents.web_researcher import find_recipe_draft_online
 from ..deps import AUTH, get_conn
 
@@ -369,30 +365,13 @@ def compose_save(body: ComposeSaveIn, conn: sqlite3.Connection = Depends(get_con
     apply_dedup so the user-built recipe is always canonical) → finalize_ingest
     (incremental embeddings + catalog bump). Returns {recipe_id, version, recipe_count}.
     """
-    raw = _draft_to_raw(body.draft)
-    if not (raw.get("ingredients") and raw.get("instructions")):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="draft must have at least one ingredient and one step to save")
-
-    canon: Canonicalizer = build_canon()
-    matcher = FoodMatcher(conn)
-    normalized = normalize_recipe(raw, canon, matcher=matcher, conn=conn)
-
-    title = normalized.get("title") or "Composed recipe"
-    new_ids = load_recipes(
-        conn,
-        {"title": title, "author": None, "source_path": None},
-        [normalized],
-    )
-    if not new_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="could not save the composed recipe")
-
-    # Embed the new recipe + bump the catalog version (NO apply_dedup → canonical).
-    summary = finalize_ingest(conn, new_ids)
+    # Shared with the agent's save_recipe tool: normalize → load (force-canonical)
+    # → embed + version bump. Empty/invalid drafts come back as {"error"} → 400.
+    result = ingest_one_recipe(conn, _draft_to_raw(body.draft))
+    if "error" in result:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
     return {
-        "recipe_id": new_ids[0],
-        "version": summary["catalog_version"],
-        "recipe_count": catalog.recipe_count(conn),
+        "recipe_id": result["recipe_id"],
+        "version": result["catalog_version"],
+        "recipe_count": result["recipe_count"],
     }

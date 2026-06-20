@@ -74,6 +74,43 @@ TOOL_SCHEMAS = [
         "parameters": {"type": "object", "required": ["request"],
             "properties": {"request": {"type": "string",
                 "description": "natural-language description of the recipes to find"}}}}},
+    {"type": "function", "function": {"name": "save_recipe",
+        "description": "Persist a NEW recipe the user wants to add to the library. FIRST compose the "
+                       "recipe and show it to the user, then call this ONLY after they confirm. "
+                       "Do NOT pass nutrition — it is computed automatically at save. Returns "
+                       "{saved: recipe_id, title, recipe_count} or {error}.",
+        "parameters": {"type": "object", "required": ["title", "ingredients", "steps"],
+            "properties": {
+                "title": {"type": "string"},
+                "servings": {"type": "integer"},
+                "total_time_min": {"type": "integer"},
+                "description": {"type": "string"},
+                "ingredients": {"type": "array", "description": "one entry per ingredient",
+                    "items": {"type": "object", "required": ["raw_text", "name"], "properties": {
+                        "raw_text": {"type": "string",
+                            "description": "full line WITH amount, e.g. '1 lb ground turkey'"},
+                        "name": {"type": "string",
+                            "description": "the food ONLY, no amount, e.g. 'ground turkey'"},
+                        "optional": {"type": "boolean"},
+                        "step_number": {"type": "integer"}}}},
+                "steps": {"type": "array", "description": "numbered cooking steps in order",
+                    "items": {"type": "object", "required": ["text"], "properties": {
+                        "text": {"type": "string"},
+                        "step_number": {"type": "integer"}}}}}}}},
+    {"type": "function", "function": {"name": "delete_recipe",
+        "description": "PERMANENTLY delete ONE whole recipe by id (cascades its ingredients, steps, "
+                       "nutrition, favorites…). Destructive — only call after the user clearly asked to "
+                       "delete THIS recipe and you have confirmed the right id.",
+        "parameters": {"type": "object", "required": ["recipe_id"],
+            "properties": {"recipe_id": {"type": "integer"}}}}},
+    {"type": "function", "function": {"name": "remove_ingredient",
+        "description": "Remove ONE ingredient (and any matching lines) from a recipe by id, e.g. take "
+                       "the onions out of recipe 42. Refreshes search + recomputes computed nutrition. "
+                       "Use for 'remove/drop/take out X' on an existing recipe — NOT to delete the recipe.",
+        "parameters": {"type": "object", "required": ["recipe_id", "ingredient"],
+            "properties": {"recipe_id": {"type": "integer"},
+                           "ingredient": {"type": "string",
+                               "description": "ingredient name to remove, e.g. 'onion'"}}}}},
 ]
 
 # name → LAYER-1 function. The dispatcher calls these as `fn(conn, **args)`.
@@ -81,7 +118,8 @@ TOOLS = {fn.__name__: fn for fn in [
     recipes.search_recipes, recipes.semantic_search, recipes.get_recipe,
     recipes.recipes_from_pantry, recipes.scale_recipe, recipes.build_shopping_list,
     recipes.find_substitutions, recipes.generate_meal_plan,
-    recipes.import_recipe_from_url, recipes.research_recipes_online]}
+    recipes.import_recipe_from_url, recipes.research_recipes_online,
+    recipes.save_recipe, recipes.delete_recipe, recipes.remove_ingredient]}
 
 # The recipe-only schema set (LAYER 1/2). The conversational agent advertises ONLY
 # these to the model — answering recipe questions never needs the 25 harness CRUD

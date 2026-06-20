@@ -32,7 +32,9 @@ router = APIRouter(dependencies=[AUTH])
 def ask(body: AskIn, conn: sqlite3.Connection = Depends(get_conn)) -> dict:
     # sampler=None semantics: we never enter provider.use_host_sampler, so agent.run
     # uses the configured provider model. agent.run takes no `sampler` kwarg itself.
-    answer = agent.run(conn, body.message, max_iters=body.max_iters)
+    answer = agent.run(conn, body.message,
+                       history=[t.model_dump() for t in body.history],
+                       max_iters=body.max_iters)
     return {"answer": answer}
 
 

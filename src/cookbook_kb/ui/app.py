@@ -288,10 +288,11 @@ def view_chat(conn):
     msg = st.chat_input("e.g. high-protein dinner under 500 calories, or paste a recipe URL")
     if msg:
         st.chat_message("user").write(msg)
+        prior = [{"role": r, "content": t} for r, t in hist]   # turns BEFORE this one
         hist.append(("user", msg))
         with st.chat_message("assistant"), st.spinner("thinking…"):
             try:
-                answer = agent.run(conn, msg)
+                answer = agent.run(conn, msg, history=prior)
             except Exception as e:
                 answer = f"⚠️ agent error: {e}"
             st.write(answer)

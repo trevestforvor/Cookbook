@@ -363,9 +363,11 @@ public actor APIClient {
 
     /// `POST /ask` — the agent may mutate server-side state, so callers should
     /// re-hydrate `/state` afterwards (SyncService does this automatically).
-    public func ask(message: String, maxIters: Int? = nil) async throws -> AskResult {
+    public func ask(message: String, history: [AskTurn]? = nil,
+                    maxIters: Int? = nil) async throws -> AskResult {
         try await send(.post, path: "/ask",
-                       body: AskBody(message: message, maxIters: maxIters), as: AskResult.self)
+                       body: AskBody(message: message, history: history, maxIters: maxIters),
+                       as: AskResult.self)
     }
 
     /// `POST /recipes/compose` — one turn of the conversational recipe builder.
