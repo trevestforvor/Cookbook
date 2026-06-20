@@ -1,0 +1,119 @@
+---
+title: Cookbook KB — Ingestion & Retrieval Data Flow (the agent on both sides of the DB)
+---
+flowchart LR
+
+  %% ============ ① INPUTS ============
+  subgraph IN["① Inputs — how a recipe enters"]
+    direction TB
+    PDF["Cookbook PDF<br/>POST /ingest"]
+    URL["Recipe URL<br/>POST /ingest/url"]
+    VIBE["Vibe / describe it<br/>POST /recipes/compose"]
+    FIND["Find online<br/>POST /recipes/compose (find)"]
+  end
+
+  %% ============ ② INGESTION-SIDE INTELLIGENCE ============
+  subgraph INGEST_AI["② Ingestion-side intelligence — LLM + web agent"]
+    direction TB
+    JOBS["JobStore · run_job()<br/>async worker threads"]
+    FETCH["fetch_recipe_text() · loader.load()<br/>httpx JSON-LD · PyMuPDF + OCR"]
+    EXTRACT["extract_recipe()<br/>one-shot guided-JSON LLM → RawRecipe"]
+    GEN["_generate_draft() · extract_json()<br/>guided-JSON LLM (generate / refine)"]
+    WRFIND["web_researcher.find_recipe_draft_online()<br/>Brave search → first parseable page"]
+    DRAFT{{"Editable draft — NOT persisted"}}
+    SAVE["POST /recipes/compose/save"]
+  end
+
+  %% ============ ③ SHARED CORE ============
+  subgraph CORE["③ Shared normalize + embed core"]
+    direction TB
+    NORM["normalize_recipe()<br/>parse_line · canonicalize · units · tagging · dedup"]
+    NUT["compute_nutrition() — USDA FDC<br/>stated-first then computed fallback"]
+    LOAD["load_recipes()<br/>recipes · ingredients · steps · tags + FTS5"]
+    EMBED["backfill_embeddings()<br/>llm.client.embed() · jina / 1024-d"]
+  end
+
+  %% ============ DATABASE (center) ============
+  DB[("SQLite<br/>recipes · recipe_ingredients · steps<br/>recipes_fts (FTS5)<br/>recipe_embeddings (vectors)")]
+
+  %% ============ ④ REQUEST-SIDE ReAct AGENT ============
+  subgraph READ["④ Retrieval tools (read)"]
+    direction TB
+    T_SEARCH["search_recipes()<br/>structured filter → FTS5"]
+    T_SEM["semantic_search()<br/>vector kNN ← embeddings"]
+    T_GET["get_recipe() · scale_recipe()<br/>recipes_from_pantry()"]
+    T_PLAN["generate_meal_plan()<br/>build_shopping_list() · find_substitutions()"]
+    T_HARNESS["harness tools<br/>favorites · pantry · history · prefs"]
+  end
+
+  ASK["Ask the cookbook<br/>POST /ask"]
+  AGENT["agent.run()<br/>ReAct loop · eagle-nothink · temp 0<br/>RECIPE_TOOL_SCHEMAS"]
+  OUT["Prose answer<br/>+ recipe chips"]
+
+  subgraph WRITE["⑤ Write-back tools — agent triggers ingestion"]
+    direction TB
+    T_IMPORT["import_recipe_from_url()  &#8635;"]
+    T_RESEARCH["research_recipes_online()  &#8635;"]
+    WRRUN["web_researcher.run()<br/>ReAct loop (max_iters=8)<br/>web_search(Brave) · import_recipe_from_url"]
+  end
+
+  %% ---------- ingestion (writes INTO db) ----------
+  PDF --> JOBS
+  URL --> JOBS
+  JOBS --> FETCH
+  FETCH --> EXTRACT --> NORM
+  VIBE --> GEN --> DRAFT
+  FIND --> WRFIND --> DRAFT
+  DRAFT --> SAVE --> NORM
+  NORM --> NUT --> LOAD
+  NORM --> LOAD
+  LOAD --> EMBED
+  LOAD --> DB
+  EMBED --> DB
+
+  %% ---------- retrieval (reads OUT of db) ----------
+  DB --> T_SEARCH --> AGENT
+  DB --> T_SEM --> AGENT
+  DB --> T_GET --> AGENT
+  DB --> T_PLAN --> AGENT
+  DB --> T_HARNESS --> AGENT
+  ASK --> AGENT --> OUT
+
+  %% ---------- the feedback loop ----------
+  AGENT --> T_IMPORT
+  AGENT --> T_RESEARCH
+  T_RESEARCH --> WRRUN
+  T_IMPORT -->|"fetch → extract → normalize → load"| FETCH
+  WRRUN -->|"imports each match"| FETCH
+
+  %% ============ legend ============
+  subgraph LEGEND["Legend — node colors"]
+    direction LR
+    L1["Input / HTTP API"]:::input
+    L2["One-shot LLM call"]:::llm
+    L3["ReAct agent loop"]:::agent
+    L4["Deterministic pipeline"]:::pipe
+    L5["SQLite store"]:::db
+    L6["Read tool"]:::tool
+    L7["Mutating / write-back tool"]:::mutate
+    L8["Draft / answer"]:::io
+  end
+
+  %% ============ styling ============
+  classDef input fill:#1e40af,stroke:#93c5fd,stroke-width:1px,color:#fff;
+  classDef llm fill:#b45309,stroke:#fbbf24,stroke-width:1px,color:#fff;
+  classDef agent fill:#6d28d9,stroke:#c4b5fd,stroke-width:3px,color:#fff;
+  classDef pipe fill:#047857,stroke:#6ee7b7,stroke-width:1px,color:#fff;
+  classDef db fill:#0f766e,stroke:#5eead4,stroke-width:4px,color:#fff;
+  classDef tool fill:#334155,stroke:#94a3b8,stroke-width:1px,color:#fff;
+  classDef mutate fill:#9f1239,stroke:#fda4af,stroke-width:2px,color:#fff;
+  classDef io fill:#a16207,stroke:#fde68a,stroke-width:1px,color:#fff;
+
+  class PDF,URL,VIBE,FIND,ASK input;
+  class EXTRACT,GEN,WRFIND llm;
+  class AGENT,WRRUN agent;
+  class JOBS,FETCH,NORM,NUT,LOAD,EMBED,SAVE pipe;
+  class DB db;
+  class T_SEARCH,T_SEM,T_GET,T_PLAN,T_HARNESS tool;
+  class T_IMPORT,T_RESEARCH mutate;
+  class DRAFT,OUT io;

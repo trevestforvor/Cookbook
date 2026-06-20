@@ -21,6 +21,10 @@ data/uploads/
 _Users_*.lock
 *.swiftpm.lock
 
+# Stray scratch artifacts (random-named temp dirs + tool logs at the repo root)
+/tmp*/
+excalidraw.log
+
 # Swift / Xcode build artifacts
 .build/
 DerivedData/
