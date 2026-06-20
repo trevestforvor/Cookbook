@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.10
-  versionName: '1.0.10'
+  version: 1.0.11
+  versionName: '1.0.11'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,12 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.10'
+  versionName: '1.0.11'
   upgradeDescription: |
+    v1.0.11 -- idempotent URL imports (image sha-7c45d3f): re-adding a recipe by the
+    same URL now REPLACES the existing copy with a fresh import instead of creating a
+    duplicate. (The chat "paste a link" add path; the deliberately-no-dedup compose
+    builder is unchanged.) Verified end-to-end against the live LLM.
     v1.0.10 -- republish on the same image (sha-d2ff797), no code change. Bumps the
     version so the marketplace offers a fresh install entry after an uninstall. NOTE:
     uninstalling does NOT delete the app's data volume ({appData}/volumes/cookbook on
