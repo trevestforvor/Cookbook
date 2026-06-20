@@ -6,7 +6,7 @@ The deterministic foundation of the stack: plain Python functions over the knowl
 
 ## Ownership
 
-- `recipes.py` — search, get, pantry-match, scale, shopping list, URL import, semantic_search wrapper, research delegation, plus the add/edit verbs: `save_recipe` (persist a user-composed recipe via `ingest.pipeline.ingest_one_recipe`), `delete_recipe` and `remove_ingredient` (wrap `store.recipes_admin`; ingredient removal also rebuilds the FTS mirror + recomputes `computed` nutrition). All three bump the catalog version.
+- `recipes.py` — search, get, pantry-match, scale, shopping list, semantic_search wrapper, research delegation, plus the add/edit verbs: `preview_recipe_from_url` (parse-only, NO save — for the confirm step), `import_recipe_from_url` (save a URL via `ingest.pipeline.ingest_one_url` so it's embedded + version-bumped — never the bare `import_from_url`), `save_recipe` (persist a composed recipe via `ingest.pipeline.ingest_one_recipe`), `delete_recipe` and `remove_ingredient` (wrap `store.recipes_admin`; ingredient removal also rebuilds the FTS mirror + recomputes `computed` nutrition). All add/edit verbs bump the catalog version.
 - `planner.py` — meal-plan generation.
 - `substitutions.py` — ingredient substitutions under a dietary constraint.
 

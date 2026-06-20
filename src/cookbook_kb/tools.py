@@ -62,9 +62,16 @@ TOOL_SCHEMAS = [
                            "max_calories_per_meal": {"type": "integer"}, "diet": {"type": "string"},
                            "max_total_minutes": {"type": "integer"},
                            "pantry": {"type": "array", "items": {"type": "string"}}}}}},
+    {"type": "function", "function": {"name": "preview_recipe_from_url",
+        "description": "Fetch + parse a recipe URL WITHOUT saving — returns a preview "
+                       "(title, ingredients, nutrition) to SHOW the user for confirmation. "
+                       "Call this FIRST when the user gives a URL to add; do NOT save yet.",
+        "parameters": {"type": "object", "required": ["url"],
+            "properties": {"url": {"type": "string"}}}}},
     {"type": "function", "function": {"name": "import_recipe_from_url",
-        "description": "Fetch a recipe web page and save it to the DB. Returns {recipe_id, title} "
-                       "or {error}. Use when the user gives a single recipe URL.",
+        "description": "SAVE a recipe from a URL to the DB (persists immediately). Returns "
+                       "{recipe_id, title} or {error}. Only call AFTER the user confirms the "
+                       "preview from preview_recipe_from_url.",
         "parameters": {"type": "object", "required": ["url"],
             "properties": {"url": {"type": "string"}}}}},
     {"type": "function", "function": {"name": "research_recipes_online",
@@ -118,7 +125,8 @@ TOOLS = {fn.__name__: fn for fn in [
     recipes.search_recipes, recipes.semantic_search, recipes.get_recipe,
     recipes.recipes_from_pantry, recipes.scale_recipe, recipes.build_shopping_list,
     recipes.find_substitutions, recipes.generate_meal_plan,
-    recipes.import_recipe_from_url, recipes.research_recipes_online,
+    recipes.preview_recipe_from_url, recipes.import_recipe_from_url,
+    recipes.research_recipes_online,
     recipes.save_recipe, recipes.delete_recipe, recipes.remove_ingredient]}
 
 # The recipe-only schema set (LAYER 1/2). The conversational agent advertises ONLY

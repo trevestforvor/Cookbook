@@ -14,9 +14,9 @@ See also the other LAYER-1 function modules: `planner.py` (meal-plan algorithm) 
 from __future__ import annotations
 
 from ..harness import state as app_state
-from ..ingest.pipeline import ingest_one_recipe
-from ..ingest.url import import_from_url
-from ..normalize.foods import recompute_recipe_nutrition
+from ..ingest.pipeline import build_canon, ingest_one_recipe, ingest_one_url
+from ..ingest.url import parse_recipe_from_url
+from ..normalize.foods import FoodMatcher, recompute_recipe_nutrition
 from ..retrieve import semantic, structured
 from ..retrieve.structured import RecipeFilter
 from ..store import catalog, recipes_admin
@@ -159,9 +159,36 @@ def generate_meal_plan(conn, **kw):
 
 
 # ── source-ingest + delegation verbs ────────────────────────────────────────
+def preview_recipe_from_url(conn, *, url):
+    """Fetch + parse ONE recipe URL WITHOUT saving — a read-only preview so the agent
+    can show the user what it found and get confirmation BEFORE import_recipe_from_url
+    actually persists it. Returns a concise summary or {error}."""
+    parsed = parse_recipe_from_url(conn, url, canon=build_canon(), matcher=FoodMatcher(conn))
+    if "error" in parsed:
+        return parsed
+    n = parsed.get("normalized") or {}
+    nut = n.get("nutrition") or {}
+    return {
+        "preview": True, "url": url,
+        "title": parsed.get("title") or n.get("title"),
+        "servings": n.get("servings"),
+        "total_time_min": n.get("total_time_min"),
+        "ingredients": [i.get("canonical_name") or i.get("raw_text")
+                        for i in n.get("ingredients", [])],
+        "step_count": len(n.get("steps", [])),
+        "nutrition_source": n.get("nutrition_source"),
+        "calories_kcal": nut.get("calories_kcal"),
+        "protein_g": nut.get("protein_g"),
+    }
+
+
 def import_recipe_from_url(conn, *, url):
-    """Single-shot: fetch+parse+save ONE recipe URL (reuses the ingestion pipeline)."""
-    return import_from_url(conn, url)
+    """Fetch+parse+SAVE ONE recipe URL AND finish the Layer-B step: embed it (so it's
+    semantically searchable) + bump the catalog version (so the app's mirror re-syncs).
+    Uses `ingest_one_url`, NOT the bare `import_from_url`, which would leave the recipe
+    unembedded + the version unbumped. Persists immediately — only call after the user
+    confirmed the preview from preview_recipe_from_url."""
+    return ingest_one_url(conn, url)
 
 
 def research_recipes_online(conn, *, request):

@@ -192,3 +192,32 @@ def test_agent_skips_malformed_history_items(conn, monkeypatch) -> None:
         ])
     kept = [m for m in captured["messages"] if m["role"] != "system"]
     assert [m["content"] for m in kept] == ["keep me", "hi"]
+
+
+def test_agent_recovers_from_leaked_text_tool_call(conn, monkeypatch) -> None:
+    """A model that emits a tool call as TEXT (no structured tool_calls) must be
+    retried, not surfaced as the answer."""
+    import types
+
+    def _msg(content):
+        return types.SimpleNamespace(content=content, tool_calls=None)
+
+    replies = iter([
+        _msg("<|tool_call>:semantic_search{query:risotto}<tool_call|>"),  # leaked → retry
+        _msg("Here are your risotto recipes."),                            # clean answer
+    ])
+    calls = {"n": 0}
+
+    class _Stub:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    calls["n"] += 1
+                    return types.SimpleNamespace(
+                        choices=[types.SimpleNamespace(message=next(replies))])
+
+    monkeypatch.setattr(agent, "_client", _Stub)
+    out = agent.run(conn, "find risotto")
+    assert out == "Here are your risotto recipes."   # not the leaked token soup
+    assert calls["n"] == 2                            # retried once

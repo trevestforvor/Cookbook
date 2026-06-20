@@ -11,6 +11,7 @@ the agent delegates an open-ended hunt to a sub-agent that runs its OWN loop.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 
 from .config import CHAT_MODEL
@@ -24,10 +25,17 @@ SYSTEM = (
     "values a tool returned. Prefer search_recipes for precise asks, semantic_search for "
     "vibes. Be concise and surface calories/protein when relevant. "
     "The conversation so far is included — resolve references like 'that one' or 'number 2' "
-    "against the recipes you already listed. "
-    "To ADD a new recipe the user wants: compose it, SHOW the title, ingredients, and steps, and "
-    "ask them to confirm; only AFTER they say yes call save_recipe (nutrition is computed for you "
-    "— don't supply it). For a single recipe URL use import_recipe_from_url instead. "
+    "against the recipes you already listed. When you list or name specific recipes, ALWAYS "
+    "include each one's id (e.g. 'Chicken Chow Mein (#42)'); only the text of your replies is "
+    "remembered across turns, so without the id you can't act on 'number 2' later. To act on a "
+    "recipe the user names (edit/delete/show), look up its id with search_recipes or "
+    "semantic_search first if you don't already have it. "
+    "To ADD a recipe, ALWAYS confirm with the user BEFORE saving — never persist on the same turn "
+    "the user first asks. If they DESCRIBE a recipe: compose it, SHOW the title, ingredients, and "
+    "steps, ask them to confirm, and only AFTER they say yes call save_recipe (nutrition is computed "
+    "for you — don't supply it). If they give a URL: call preview_recipe_from_url FIRST, show the "
+    "title + key ingredients (and flag anything they dislike, e.g. onions), ask them to confirm, and "
+    "only AFTER they say yes call import_recipe_from_url to save it. "
     "To change a saved recipe use delete_recipe (remove the whole recipe) or remove_ingredient "
     "(drop one ingredient); these are DESTRUCTIVE — first make sure you have the right recipe id "
     "(from the conversation or get_recipe), and if it's at all ambiguous, ask which recipe before "
@@ -37,6 +45,11 @@ SYSTEM = (
 # History longer than this is truncated to the most-recent turns: it bounds /ask
 # latency + token cost and keeps the live question inside the model's attention.
 _MAX_HISTORY_TURNS = 20
+
+# Some models intermittently emit a tool call as TEXT (e.g. "<|tool_call>:search{…}")
+# instead of using the function-calling interface; this catches that leak so we can
+# retry rather than dump the raw token soup at the user.
+_LEAKED_TOOL_CALL = re.compile(r"<\|?tool_call|tool_call\|>", re.IGNORECASE)
 
 
 def run(conn: sqlite3.Connection, user_message: str, *, history=None,
@@ -59,7 +72,14 @@ def run(conn: sqlite3.Connection, user_message: str, *, history=None,
             model=CHAT_MODEL, messages=messages, tools=RECIPE_TOOL_SCHEMAS, temperature=0)
         msg = resp.choices[0].message
         if not msg.tool_calls:
-            return msg.content or ""        # model produced a final prose answer
+            content = msg.content or ""
+            if _LEAKED_TOOL_CALL.search(content):   # model wrote a tool call as text
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content":
+                    "That tool call came through as plain text. Use the function-calling "
+                    "interface to call the tool, or reply in normal prose."})
+                continue                            # retry within the iteration budget
+            return content                          # model produced a final prose answer
         messages.append(msg)                # assistant turn carrying the tool_calls
 
         for tc in msg.tool_calls:
