@@ -22,6 +22,11 @@ This is a packaging boundary, not application code.
 - **Build context is the repo root.** The Dockerfile reaches up for `src/`,
   `pyproject.toml`, `config.yaml`, and the seed DB. The root `.dockerignore` keeps the
   Swift app and the entire (gitignored) `data/` out of the image.
+- **`opencv` MUST stay `opencv-python-headless`.** The full wheel links GUI libs the
+  slim runtime lacks, so `import cv2` crashes uvicorn at boot — a `docker build` stays
+  green while the pod crash-loops (Olares entrance then returns 421, no healthy
+  upstream). `build-backend.yml` smoke-tests the built image (runs it + imports the
+  app) so a runtime-only crash fails CI instead of shipping a green-but-broken image.
 - **The image sets `COOKBOOK_ROOT=/app`.** `pip install` puts the package in
   site-packages, so `config.py`'s `parents[2]` heuristic can't find `config.yaml` or the
   `data/` volume — the image MUST export `COOKBOOK_ROOT=/app` (config + data both live
