@@ -8,10 +8,11 @@ userspace:
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
   # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
-  # semver tags). sha-15d8bb1 = opencv-python-headless fix — the prior sha-183238b
-  # crash-looped the pod (`import cv2` needs GUI libs absent from the slim image;
-  # CI now smoke-tests the image actually starts). Bump on each new CI image.
-  tag: "sha-15d8bb1"
+  # semver tags). sha-f77ddf4 = conversational assistant memory + in-chat
+  # add/delete/edit recipe tools (save_recipe / delete_recipe / remove_ingredient)
+  # + /ask conversation history. Built on the opencv-python-headless base
+  # (sha-15d8bb1) and CI-smoke-tested to serve /health. Bump on each new CI image.
+  tag: "sha-f77ddf4"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user

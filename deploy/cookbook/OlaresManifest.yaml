@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.6
-  versionName: '1.0.6'
+  version: 1.0.7
+  versionName: '1.0.7'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,15 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.6'
+  versionName: '1.0.7'
   upgradeDescription: |
+    v1.0.7 -- conversational Assistant (image sha-f77ddf4): /ask now threads
+    conversation history (resolves "that one"/"number 2" + multi-step edits;
+    server stays stateless, the client resends the transcript) and the agent
+    gains in-chat recipe tools -- save_recipe (draft -> confirm -> persist),
+    delete_recipe (whole recipe), and remove_ingredient (drop one ingredient,
+    rebuilds search + recomputes computed nutrition). All bump the catalog
+    version so the app re-syncs. max_iters raised 4 -> 8.
     v1.0.6 -- adds the conversational recipe builder (image sha-183238b):
     POST /recipes/compose (one synchronous turn -> a transient recipe DRAFT;
     generate from a description, parse a URL, or web-search find -- never writes)
