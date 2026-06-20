@@ -84,6 +84,21 @@ def test_save_recipe_rejects_empty(conn) -> None:
     assert catalog.get_version(conn) == v0      # nothing persisted, no version churn
 
 
+# ── recipe_sources (URL idempotency: re-import replaces, never duplicates) ────
+def test_recipe_sources_record_normalizes_and_self_heals(conn) -> None:
+    from cookbook_kb.store import recipe_sources as rs
+    rid = conn.execute("SELECT id FROM recipes LIMIT 1").fetchone()[0]
+    url = "https://example.com/some-recipe/"
+    assert rs.existing_recipe_for_url(conn, url) is None
+    rs.record(conn, url, rid)
+    # trailing slash is normalized away — same URL resolves to the same recipe
+    assert rs.existing_recipe_for_url(conn, "https://example.com/some-recipe") == rid
+    # stale mapping (recipe deleted out from under it) self-clears
+    conn.execute("DELETE FROM recipes WHERE id = ?", (rid,))
+    conn.commit()
+    assert rs.existing_recipe_for_url(conn, url) is None
+
+
 # ── delete_recipe ────────────────────────────────────────────────────────────
 def test_delete_recipe_bumps_version_and_is_idempotent_404(conn) -> None:
     rid = conn.execute("SELECT id FROM recipes LIMIT 1").fetchone()[0]

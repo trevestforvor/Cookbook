@@ -23,7 +23,9 @@ from ..extract.extractor import extract_recipe
 from ..normalize.canonical import Canonicalizer
 from ..normalize.foods import FoodMatcher
 from ..normalize.pipeline import normalize_recipe
+from ..store import recipe_sources
 from ..store.load import load_recipes
+from ..store.recipes_admin import delete_recipe as _delete_recipe
 
 _UA = {"User-Agent": "cookbook-kb/0.1 (+recipe import)"}
 _LD_RE = re.compile(
@@ -151,6 +153,14 @@ def import_from_url(conn: sqlite3.Connection, url: str, *,
         return parsed
 
     normalized = parsed["normalized"]
+    # Replace-on-re-add: if this exact URL is already in the library, drop that
+    # recipe first so a re-import REFRESHES it in place instead of duplicating.
+    prior = recipe_sources.existing_recipe_for_url(conn, url)
+    if prior is not None:
+        _delete_recipe(conn, prior)          # cascades children + FTS; version bump
+                                             # happens once in the caller's finalize.
     site = urlparse(url).netloc or url
     ids = load_recipes(conn, {"title": site, "source_path": url}, [normalized])
-    return {"recipe_id": ids[0], "title": normalized.get("title"), "url": url}
+    recipe_sources.record(conn, url, ids[0])
+    return {"recipe_id": ids[0], "title": normalized.get("title"), "url": url,
+            "replaced": prior is not None}
