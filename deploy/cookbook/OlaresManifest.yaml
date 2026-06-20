@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.8
-  versionName: '1.0.8'
+  version: 1.0.9
+  versionName: '1.0.9'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,14 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.8'
+  versionName: '1.0.9'
   upgradeDescription: |
+    v1.0.9 -- assistant add/edit hardening (image sha-d2ff797): adding a recipe now
+    CONFIRMS first (URL: preview the parsed recipe -> you approve -> save; described:
+    draft -> you approve -> save). URL imports are embedded + bump the catalog version
+    (so they're searchable and the app re-syncs). Listings include recipe ids so
+    "number 2" / follow-ups resolve, and a guard recovers when the model emits a tool
+    call as text. Verified end-to-end against the live LLM.
     v1.0.8 -- conversational Assistant (image sha-f77ddf4): /ask now threads
     conversation history (resolves "that one"/"number 2" + multi-step edits;
     server stays stateless, the client resends the transcript) and the agent
