@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.9
-  versionName: '1.0.9'
+  version: 1.0.10
+  versionName: '1.0.10'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,13 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.9'
+  versionName: '1.0.10'
   upgradeDescription: |
+    v1.0.10 -- republish on the same image (sha-d2ff797), no code change. Bumps the
+    version so the marketplace offers a fresh install entry after an uninstall. NOTE:
+    uninstalling does NOT delete the app's data volume ({appData}/volumes/cookbook on
+    the host), so a reinstall reuses the existing SQLite library. For a true reset,
+    clear that path on the host, or use the in-app wipe / DELETE /recipes?confirm=true.
     v1.0.9 -- assistant add/edit hardening (image sha-d2ff797): adding a recipe now
     CONFIRMS first (URL: preview the parsed recipe -> you approve -> save; described:
     draft -> you approve -> save). URL imports are embedded + bump the catalog version
