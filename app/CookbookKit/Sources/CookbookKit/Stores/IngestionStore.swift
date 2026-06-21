@@ -51,7 +51,11 @@ public final class IngestionStore {
     }
 
     /// Start a PDF ingestion (`POST /ingest`) from a file URL and begin polling.
-    public func ingestPDF(fileURL: URL, title: String? = nil, author: String? = nil) async {
+    /// Returns `true` once the job is queued + tracked, `false` on failure (with the
+    /// reason in `lastError`) — so the caller can show the right feedback instead of a
+    /// blanket "importing" confirmation that lies when the upload/extraction failed.
+    @discardableResult
+    public func ingestPDF(fileURL: URL, title: String? = nil, author: String? = nil) async -> Bool {
         isStarting = true
         uploadProgress = UploadProgress(bytesSent: 0, totalBytes: 0)
         defer { isStarting = false }
@@ -64,14 +68,19 @@ public final class IngestionStore {
             uploadProgress = nil
             try await seed(jobId: handle.jobId, kind: .pdf, filename: fileURL.lastPathComponent, status: handle.status)
             startPolling(jobId: handle.jobId)
+            lastError = nil
+            return true
         } catch {
             uploadProgress = nil
             lastError = String(describing: error)
+            return false
         }
     }
 
-    /// Start a PDF ingestion from in-memory data.
-    public func ingestPDF(data: Data, filename: String, title: String? = nil, author: String? = nil) async {
+    /// Start a PDF ingestion from in-memory data. See `ingestPDF(fileURL:)` for the
+    /// `Bool` success contract.
+    @discardableResult
+    public func ingestPDF(data: Data, filename: String, title: String? = nil, author: String? = nil) async -> Bool {
         isStarting = true
         uploadProgress = UploadProgress(bytesSent: 0, totalBytes: Int64(data.count))
         defer { isStarting = false }
@@ -84,9 +93,12 @@ public final class IngestionStore {
             uploadProgress = nil
             try await seed(jobId: handle.jobId, kind: .pdf, filename: filename, status: handle.status)
             startPolling(jobId: handle.jobId)
+            lastError = nil
+            return true
         } catch {
             uploadProgress = nil
             lastError = String(describing: error)
+            return false
         }
     }
 

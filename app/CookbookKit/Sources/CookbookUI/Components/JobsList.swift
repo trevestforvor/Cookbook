@@ -208,16 +208,34 @@ extension IngestJob {
     var stageLabel: String {
         switch status {
         case .queued: return IngestStage.queued.label
-        case .done: return IngestStage.done.label
+        // A dedup short-circuit (re-dropping an already-owned file) is a distinct,
+        // non-alarming terminal state — not a bare "Done / 0 recipes".
+        case .done: return isSkipped ? "Already in your library" : IngestStage.done.label
         case .error: return "Error"
-        case .running: return currentStage.label
+        case .running:
+            // The slow pre-LLM "loading" phase is per-PAGE here (OCR / text), so name
+            // it for what it is; the count ("3/12") comes from hasDeterminateProgress.
+            if currentStage == .loading {
+                return kind == .pdf ? "Reading pages" : "Fetching"
+            }
+            return currentStage.label
         }
     }
 
-    /// True when a determinate progress bar makes sense (we know a recipe count
-    /// and we're in a counting phase).
+    /// A re-drop of an already-ingested file: the server skipped OCR/LLM and returned
+    /// nothing. The worker keeps `stage == "skipped"` on the terminal record so we can
+    /// distinguish it from a genuine empty import.
+    var isSkipped: Bool {
+        (stage?.lowercased().contains("skip")) == true
+    }
+
+    /// True when a determinate progress bar makes sense (we know a unit count and
+    /// we're in a counting phase). Includes `.loading` so the per-page OCR phase shows
+    /// live movement instead of a frozen label for the whole (slow) pre-LLM stretch.
     var hasDeterminateProgress: Bool {
-        recipesTotal > 0 && (currentStage == .extracting || currentStage == .embedding) && status == .running
+        recipesTotal > 0
+            && (currentStage == .loading || currentStage == .extracting || currentStage == .embedding)
+            && status == .running
     }
 
     /// A short source descriptor for the row title.

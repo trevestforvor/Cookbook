@@ -740,20 +740,37 @@ public struct AssistantView: View {
     /// the Activity affordance. Reads bytes under a security-scoped grant when the
     /// file came from the document picker (outside the app sandbox).
     private func startPDFIngest(fileURL: URL, securityScoped: Bool = false) {
+        let name = fileURL.lastPathComponent
         Task {
+            let started: Bool
             if securityScoped {
                 let scoped = fileURL.startAccessingSecurityScopedResource()
                 defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
                 if let data = try? Data(contentsOf: fileURL) {
-                    await environment.ingestionStore.ingestPDF(
-                        data: data, filename: fileURL.lastPathComponent)
+                    started = await environment.ingestionStore.ingestPDF(
+                        data: data, filename: name)
                 } else {
-                    await environment.ingestionStore.ingestPDF(fileURL: fileURL)
+                    started = await environment.ingestionStore.ingestPDF(fileURL: fileURL)
                 }
             } else {
-                await environment.ingestionStore.ingestPDF(fileURL: fileURL)
+                started = await environment.ingestionStore.ingestPDF(fileURL: fileURL)
             }
-            showConfirmation("Importing your PDF \u{2014} track it in Activity.")
+            // Surface the outcome in the transcript instead of a banner that shows
+            // even when the import never started. On success the job is queued +
+            // polling (watch it in Activity); on failure show the real reason so a
+            // failed upload/extraction isn't silent ("can't see anything happening").
+            if started {
+                appendAssistant(ChatMessage(
+                    role: .assistant,
+                    text: "Importing \(name) \u{2014} I'll add its recipes to your library. "
+                        + "Track progress in Activity (top-right)."))
+            } else {
+                let reason = environment.ingestionStore.lastError ?? "Something went wrong."
+                appendAssistant(ChatMessage(
+                    role: .assistant,
+                    text: "Couldn't import \(name).\n\n\(reason)",
+                    isError: true))
+            }
         }
     }
 
