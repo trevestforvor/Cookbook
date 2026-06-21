@@ -16,6 +16,7 @@ import os
 
 from fastapi import FastAPI
 
+from .. import config
 from .jobs import JobStore
 from .routers import compose as compose_router
 from .routers import ingest as ingest_router
@@ -44,8 +45,10 @@ def create_app() -> FastAPI:
 
     # One ingestion job store for the process lifetime. LAYER B wires the real
     # ingestion worker here, so queued jobs run the PDF/URL → DB → embeddings
-    # pipeline (each in its own background thread + own db connection).
-    app.state.job_store = JobStore()
+    # pipeline (each in its own background thread + own db connection). The pool size
+    # (config.JOB_WORKERS, default 8) is matched to the model's vLLM max-num-seqs so
+    # parallel ingests don't pile up and a few stuck jobs can't block the whole queue.
+    app.state.job_store = JobStore(max_workers=config.JOB_WORKERS)
     app.state.job_store.WORKER = run_job
 
     @app.get("/health")

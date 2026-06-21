@@ -103,6 +103,14 @@ VLM_EXTRACTION = (
     .lower() not in ("0", "false", "no")
 )
 
+# Concurrent ingestion worker threads (the JobStore thread pool). Matched to the
+# served model's vLLM `--max-num-seqs` (currently 8) so N parallel ingests get N
+# proxy sequence slots instead of piling up; it also means a few stuck jobs can't
+# block the whole queue (with 2 workers, two frozen jobs froze everything). Bound it
+# (1..32) and keep it env-overridable so it can track a max-num-seqs change without a
+# code edit.
+JOB_WORKERS = max(1, min(32, int(os.environ.get("COOKBOOK_JOB_WORKERS") or 8)))
+
 # Whether tools that need an LLM may use MCP host sampling when it's available.
 # Default on; embeddings + guided-JSON + tool-calling always use the provider
 # above (sampling can't do those) — see llm/provider.py.
