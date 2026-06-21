@@ -23,9 +23,11 @@ from ..deps import AUTH, as_http, get_conn
 
 router = APIRouter(dependencies=[AUTH])
 
-# No-params /recipes should return the whole catalog, so the default limit is high
-# (the contract: "no params => return all; raise the default limit").
-_ALL_LIMIT = 1000
+# No-params /recipes must return the WHOLE catalog (the app's `recipes(.all)` sync
+# sends no limit and expects everything). A fixed 1000 silently truncated the sync
+# once the library passed 1k recipes — the rows were in the DB, just never sent, so
+# the app's "Recipes cached" froze at 1000. SQLite `LIMIT -1` = no upper bound.
+_ALL_LIMIT = -1
 
 
 @router.get("/catalog/version")
