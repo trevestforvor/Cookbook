@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from .. import config
 from ..store import db
 from ..store import ingest_jobs as job_rows
+from ..store import load
 from .jobs import JobStore
 from .routers import compose as compose_router
 from .routers import ingest as ingest_router
@@ -65,10 +66,21 @@ def create_app() -> FastAPI:
             if n:
                 logging.getLogger("cookbook_kb.api").info(
                     "startup: reconciled %d orphaned ingest job(s) to error", n)
+            # Mark duplicate recipes canonical. The batch ingest pipeline never ran
+            # apply_dedup, so re-uploads that slipped past the file-SHA skip (a frozen
+            # job never recorded its hash) sit in the catalog as visible dupes. This
+            # only sets canonical_id (the list query filters canonical_id IS NULL), so
+            # it's non-destructive + reversible — the rows stay, just hidden.
+            if config.DEDUP_ON_STARTUP:
+                mapping = load.apply_dedup(conn)
+                dupes = sum(1 for rid, cid in mapping.items() if cid != rid)
+                if dupes:
+                    logging.getLogger("cookbook_kb.api").info(
+                        "startup: marked %d duplicate recipe(s) non-canonical", dupes)
         finally:
             conn.close()
     except Exception:  # never let bookkeeping block startup
-        logging.getLogger("cookbook_kb.api").exception("startup orphan reconcile failed")
+        logging.getLogger("cookbook_kb.api").exception("startup reconcile failed")
 
     @app.get("/health")
     def health() -> dict:

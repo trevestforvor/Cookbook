@@ -121,6 +121,16 @@ VLM_EXTRACTION = (
 # code edit.
 JOB_WORKERS = max(1, min(32, int(os.environ.get("COOKBOOK_JOB_WORKERS") or 8)))
 
+# Re-derive recipe canonical_id over the whole library on startup (store.load.apply_dedup).
+# The batch ingest pipeline never marks duplicates, so re-uploads that slipped past the
+# file-SHA skip (e.g. a frozen job that never recorded its hash) accumulate as visible
+# dupes. A boot-time pass marks them canonical (the catalog query already hides
+# canonical_id IS NOT NULL) — non-destructive + reversible. Env-overridable so a very
+# large library can disable the boot cost.
+DEDUP_ON_STARTUP = (
+    os.environ.get("COOKBOOK_DEDUP_ON_STARTUP", "true").lower() not in ("0", "false", "no")
+)
+
 # Whether tools that need an LLM may use MCP host sampling when it's available.
 # Default on; embeddings + guided-JSON + tool-calling always use the provider
 # above (sampling can't do those) — see llm/provider.py.
