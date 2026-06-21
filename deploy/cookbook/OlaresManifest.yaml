@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.16
-  versionName: '1.0.16'
+  version: 1.0.17
+  versionName: '1.0.17'
   categories:
     - Productivity
 entrances:
@@ -21,8 +21,15 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.16'
+  versionName: '1.0.17'
   upgradeDescription: |
+    v1.0.17 -- no more frozen imports + auto-dedup (image sha-28cbbc7). A hung
+    LLM call now times out in minutes (180s + 1 retry) instead of stranding an
+    ingest worker for ~30 min, and zombie jobs left "running" by a restart are
+    reconciled to an error on startup instead of sitting frozen in Activity
+    forever. The library is also de-duplicated on startup: re-uploads that
+    slipped past the file-skip (e.g. a frozen job that never recorded its hash)
+    are hidden from the catalog non-destructively. No env or port changes.
     v1.0.16 -- bigger libraries + parallel imports (image sha-c796bfb). The
     catalog sync no longer caps at 1000 recipes: GET /recipes returns the WHOLE
     library, so the app stops freezing at 1000 "Recipes cached" once you pass 1k.
