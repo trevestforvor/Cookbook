@@ -6,8 +6,8 @@ metadata:
   title: Cookbook KB
   icon: https://crochet-market.crochetme.workers.dev/icons/cookbook.png
   description: Recipe knowledge base API -- ingest, search, and serve recipes
-  version: 1.0.11
-  versionName: '1.0.11'
+  version: 1.0.14
+  versionName: '1.0.14'
   categories:
     - Productivity
 entrances:
@@ -21,30 +21,61 @@ entrances:
     # that the FastAPI app validates protects every request instead.
     authLevel: public
 spec:
-  versionName: '1.0.11'
+  versionName: '1.0.14'
   upgradeDescription: |
-    v1.0.11 -- idempotent URL imports (image sha-7c45d3f): re-adding a recipe by the
-    same URL now REPLACES the existing copy with a fresh import instead of creating a
-    duplicate. (The chat "paste a link" add path; the deliberately-no-dedup compose
-    builder is unchanged.) Verified end-to-end against the live LLM.
-    v1.0.10 -- republish on the same image (sha-d2ff797), no code change. Bumps the
-    version so the marketplace offers a fresh install entry after an uninstall. NOTE:
-    uninstalling does NOT delete the app's data volume ({appData}/volumes/cookbook on
-    the host), so a reinstall reuses the existing SQLite library. For a true reset,
-    clear that path on the host, or use the in-app wipe / DELETE /recipes?confirm=true.
-    v1.0.9 -- assistant add/edit hardening (image sha-d2ff797): adding a recipe now
-    CONFIRMS first (URL: preview the parsed recipe -> you approve -> save; described:
-    draft -> you approve -> save). URL imports are embedded + bump the catalog version
-    (so they're searchable and the app re-syncs). Listings include recipe ids so
-    "number 2" / follow-ups resolve, and a guard recovers when the model emits a tool
-    call as text. Verified end-to-end against the live LLM.
-    v1.0.8 -- conversational Assistant (image sha-f77ddf4): /ask now threads
-    conversation history (resolves "that one"/"number 2" + multi-step edits;
-    server stays stateless, the client resends the transcript) and the agent
-    gains in-chat recipe tools -- save_recipe (draft -> confirm -> persist),
-    delete_recipe (whole recipe), and remove_ingredient (drop one ingredient,
-    rebuilds search + recomputes computed nutrition). All bump the catalog
-    version so the app re-syncs. max_iters raised 4 -> 8.
+    v1.0.14 -- PDF imports show up instantly (image sha-ae61390). A scanned
+    cookbook now appears in the app's Activity inbox the moment you pick the
+    file -- an "Uploading" row with live byte percent, then per-page progress --
+    instead of nothing happening until the (large) upload finished. POST /ingest
+    accepts an optional client job_id so the optimistic row keeps a stable id.
+    Failed uploads now surface as an error row instead of staying stuck.
+    No env or port changes.
+    v1.0.13 -- scanned-cookbook ingestion gets smarter (image sha-b7fdd6a).
+    Scanned PDF pages are now extracted with the vision model (VLM) instead of
+    OCR-only, with live per-page stage progress streamed to the app as each page
+    is processed. PDF import failures are now surfaced to the app (with stage
+    labels) instead of failing silently. Builds on the v1.0.12 SSE streaming.
+    No chart, env, or port changes.
+    v1.0.12 -- the Assistant now streams (image sha-2c2bf78). A new
+    POST /ask/stream endpoint emits the agent's progress as Server-Sent Events,
+    so the app can show what the agent is doing (thinking / running a tool /
+    answering) during the reasoning-model wait instead of a blank spinner. The
+    agentic ReAct loops now use a dedicated thinking model (eagle, 8K budget)
+    while guided-JSON extraction stays on the no-think model (eagle-nothink).
+    This release also folds in the v1.0.11 change that was never published on its
+    own: URL imports are idempotent -- re-adding the same URL REPLACES the
+    existing recipe instead of creating a duplicate. Verified end-to-end against
+    the live LLM. No chart, env, or port changes.
+    v1.0.10 -- republish on the same image (sha-d2ff797), no code change. Bumps
+    the version so the marketplace offers a fresh install entry after an
+    uninstall. NOTE: uninstalling does NOT delete the app's data volume
+    ({appData}/volumes/cookbook on the host), so a reinstall reuses the existing
+    SQLite library. For a true reset, clear that path on the host, or use the
+    in-app wipe / DELETE /recipes?confirm=true before reinstalling.
+    v1.0.9 -- assistant add/edit hardening (image sha-d2ff797): adding a recipe
+    now CONFIRMS first (URL: preview the parsed recipe -> you approve -> save;
+    described: draft -> you approve -> save). URL imports are embedded + bump the
+    catalog version (so they're searchable and the app re-syncs). Listings include
+    recipe ids so "number 2" / follow-ups resolve, and a guard recovers when the
+    model emits a tool call as text. Verified end-to-end against the live LLM.
+    Image-side only -- no chart, env, or port changes.
+    v1.0.8 -- assistant upgrade (image sha-f77ddf4). The Assistant gains
+    conversational memory and can add, delete, and edit recipes in-chat: the
+    agent loop persists turn history and re-syncs state after each /ask, so agent
+    imports/deletes/edits show up in the app. New recipe-edit tools in the
+    functions layer; /compose/save now delegates to a shared ingest path (DRY).
+    CI also smoke-tests that the image serves /health, not just imports it.
+    Image-side only -- no chart, env, or port changes.
+    v1.0.7 -- crash-loop fix (image sha-15d8bb1). The prior v1.0.6 image
+    crash-looped the pod on a clean install: `import cv2` (full opencv, pulled in
+    by the OCR ingest path at uvicorn startup) needs GUI shared libs the slim
+    runtime lacks, so the app died before serving and the entrance returned 421 /
+    no healthy upstream. Switched to opencv-python-headless (the OCR code uses
+    only image ops -- threshold/imread/cvtColor -- no GUI). CI now runs the image
+    and imports the app, so a runtime-only crash fails the build instead of
+    shipping a green image that crash-loops. Also: the seed database no longer
+    ships stale ingest-job history. Recipe-builder and delete/wipe endpoints
+    unchanged.
     v1.0.6 -- adds the conversational recipe builder (image sha-183238b):
     POST /recipes/compose (one synchronous turn -> a transient recipe DRAFT;
     generate from a description, parse a URL, or web-search find -- never writes)
