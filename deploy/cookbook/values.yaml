@@ -8,12 +8,12 @@ userspace:
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
   # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
-  # semver tags). sha-ae61390 = optimistic PDF-import UI: POST /ingest now accepts
-  # a client-provided job_id so the app can show the import in Activity the instant
-  # the user picks a file. Builds on sha-b7fdd6a (VLM scanned-page extraction +
-  # live per-page stage progress). Bump on each new CI image; crochet + weightloss
-  # deploy chart stay aligned at v1.0.14 == sha-ae61390.
-  tag: "sha-ae61390"
+  # semver tags). sha-c796bfb = catalog sync no longer caps at 1000 recipes (GET
+  # /recipes returns the WHOLE library) + ingest workers raised 2->8 to match the
+  # model's max-num-seqs. Builds on sha-ae61390 (optimistic PDF-import UI + job_id).
+  # Bump on each new CI image; crochet + weightloss deploy chart stay aligned at
+  # v1.0.16 == sha-c796bfb.
+  tag: "sha-c796bfb"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user
