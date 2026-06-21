@@ -719,6 +719,8 @@ private extension CookbookAPIError {
             return "Got an unexpected response from the server."
         case .encoding:
             return "Couldn't encode the request."
+        case .streamingUnavailable:
+            return "Live updates aren't available right now."
         }
     }
 }

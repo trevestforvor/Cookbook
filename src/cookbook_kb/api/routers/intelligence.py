@@ -15,12 +15,15 @@ enter here, so the agent uses the provider model. That's exactly "sampler=None".
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
-from ... import agent
+from ... import agent, config
 from ...functions import planner, recipes
+from ...store import db
 from ...tools import TOOLS
 from ..deps import AUTH, as_http, get_conn
 from ..models import AskIn, MealPlanIn, ShoppingListIn, SubstitutionsIn
@@ -36,6 +39,42 @@ def ask(body: AskIn, conn: sqlite3.Connection = Depends(get_conn)) -> dict:
                        history=[t.model_dump() for t in body.history],
                        max_iters=body.max_iters)
     return {"answer": answer}
+
+
+@router.post("/ask/stream")
+def ask_stream(body: AskIn) -> StreamingResponse:
+    """Same agent run as `/ask`, but streamed as Server-Sent Events so the client can
+    show WHAT the agent is doing during the (reasoning-model) wait. Each event is a
+    `data: {json}\\n\\n` line carrying one `agent.run_events` dict (thinking / tool /
+    answer); the terminal `answer` event holds the same string `/ask` would return.
+
+    The connection is opened INSIDE the generator (not via `get_conn`) because the
+    sync generator runs in Starlette's threadpool — a per-request dependency
+    connection is thread-bound and would be cleaned up before streaming finishes.
+    Access here is serialized (one event at a time), so `same_thread=False` is safe.
+    """
+    history = [t.model_dump() for t in body.history]
+
+    def event_stream():
+        conn = db.connect(str(config.db_path()), same_thread=False)
+        try:
+            for event in agent.run_events(conn, body.message, history=history,
+                                          max_iters=body.max_iters):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as exc:  # surface failures as a terminal event, never a half-open stream
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+        finally:
+            conn.close()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # ask nginx/ingress not to buffer the stream
+        },
+    )
 
 
 @router.post("/meal-plan")

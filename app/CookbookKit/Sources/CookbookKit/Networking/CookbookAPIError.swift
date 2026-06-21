@@ -22,6 +22,10 @@ public enum CookbookAPIError: Error, Sendable, Equatable {
     case decoding(String)
     /// A request body could not be encoded.
     case encoding(String)
+    /// The streaming `/ask/stream` path isn't usable (session can't stream, or the
+    /// endpoint isn't deployed → non-200). A sentinel, not a user-facing failure:
+    /// callers catch it and transparently fall back to the blocking `/ask`.
+    case streamingUnavailable
 
     public var isUnauthorized: Bool {
         if case .unauthorized = self { return true }
@@ -30,6 +34,11 @@ public enum CookbookAPIError: Error, Sendable, Equatable {
 
     public var isNotFound: Bool {
         if case .notFound = self { return true }
+        return false
+    }
+
+    public var isStreamingUnavailable: Bool {
+        if case .streamingUnavailable = self { return true }
         return false
     }
 }
@@ -45,6 +54,7 @@ extension CookbookAPIError: LocalizedError {
         case .notFound(let m): return "Not found\(m.map { ": \($0)" } ?? "")"
         case .decoding(let s): return "Decoding failed: \(s)"
         case .encoding(let s): return "Encoding failed: \(s)"
+        case .streamingUnavailable: return "Streaming unavailable"
         }
     }
 }

@@ -236,3 +236,59 @@ def test_agent_recovers_from_leaked_text_tool_call(conn, monkeypatch) -> None:
     out = agent.run(conn, "find risotto")
     assert out == "Here are your risotto recipes."   # not the leaked token soup
     assert calls["n"] == 2                            # retried once
+
+
+def test_run_events_streams_thinking_tool_answer(conn, monkeypatch) -> None:
+    """run_events yields the live progress sequence the SSE endpoint forwards:
+    a `thinking` before each model turn, a labelled `tool` per call, and exactly
+    one terminal `answer` carrying the final prose."""
+    import types
+
+    def _tool_call(name, args="{}"):
+        return types.SimpleNamespace(
+            id="c1", function=types.SimpleNamespace(name=name, arguments=args))
+
+    # Turn 1: the model calls search_recipes. Turn 2: it answers in prose.
+    replies = iter([
+        types.SimpleNamespace(content=None, tool_calls=[_tool_call("search_recipes",
+                                                                   '{"query": "soup"}')]),
+        types.SimpleNamespace(content="Here are two soups: Tomato (#1), Lentil (#2).",
+                              tool_calls=None),
+    ])
+
+    class _Stub:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    return types.SimpleNamespace(
+                        choices=[types.SimpleNamespace(message=next(replies))])
+
+    monkeypatch.setattr(agent, "_client", _Stub)
+    events = list(agent.run_events(conn, "what soups do I have?"))
+
+    types_seq = [e["type"] for e in events]
+    assert types_seq == ["thinking", "tool", "thinking", "answer"]
+    # the tool event carries the raw name AND a cook-facing label (never the raw name)
+    tool_ev = events[1]
+    assert tool_ev["name"] == "search_recipes"
+    assert tool_ev["label"] == "Searching your library"
+    # exactly one terminal answer, and it's the model's prose
+    assert types_seq.count("answer") == 1
+    assert events[-1]["text"] == "Here are two soups: Tomato (#1), Lentil (#2)."
+
+
+def test_run_drains_run_events_to_final_answer(conn, monkeypatch) -> None:
+    """run() must return exactly the terminal answer that run_events yields."""
+    import types
+
+    class _Stub:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    return types.SimpleNamespace(choices=[types.SimpleNamespace(
+                        message=types.SimpleNamespace(content="42 recipes.", tool_calls=None))])
+
+    monkeypatch.setattr(agent, "_client", _Stub)
+    assert agent.run(conn, "count") == "42 recipes."

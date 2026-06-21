@@ -17,7 +17,7 @@ import sqlite3
 
 import httpx
 
-from ..config import BRAVE_API_KEY, CHAT_MODEL
+from ..config import BRAVE_API_KEY, REASONING_MODEL, REASONING_MAX_TOKENS
 from ..ingest.url import import_from_url, parse_recipe_from_url
 from ..llm.client import _client
 
@@ -108,7 +108,8 @@ def run(conn: sqlite3.Connection, request: str, *, max_iters: int = 8) -> str:
                 {"role": "user", "content": request}]
     for _ in range(max_iters):
         resp = _client.chat.completions.create(
-            model=CHAT_MODEL, messages=messages, tools=TOOL_SCHEMAS, temperature=0)
+            model=REASONING_MODEL, messages=messages, tools=TOOL_SCHEMAS,
+            temperature=0, max_tokens=REASONING_MAX_TOKENS)
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return msg.content or ""

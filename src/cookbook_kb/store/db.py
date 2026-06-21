@@ -20,13 +20,19 @@ def ensure_app_tables(con: sqlite3.Connection) -> None:
     con.commit()
 
 
-def connect(db_path: str | Path) -> sqlite3.Connection:
+def connect(db_path: str | Path, *, same_thread: bool = True) -> sqlite3.Connection:
     """Open a connection with foreign keys on and Row access.
 
     Also self-heals the schema by ensuring the app-state tables exist, so the
     MCP server and agent can rely on them against any existing database file.
+
+    ``same_thread=False`` (default True) relaxes SQLite's thread-identity check for
+    the one caller that needs it: the SSE `/ask/stream` generator, which Starlette
+    resumes across threadpool workers. Access there is still serialized (one event
+    at a time), so dropping the assertion is safe — do NOT use this for a connection
+    shared by concurrent writers.
     """
-    con = sqlite3.connect(str(db_path))
+    con = sqlite3.connect(str(db_path), check_same_thread=same_thread)
     con.execute("PRAGMA foreign_keys = ON")
     con.execute("PRAGMA busy_timeout = 5000")   # wait out a concurrent writer instead of erroring
     # Rollback journaling (single self-contained file), NOT WAL: every commit lives

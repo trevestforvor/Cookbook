@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from typing import Iterator
 
-from .config import CHAT_MODEL
+from .config import REASONING_MODEL, REASONING_MAX_TOKENS
 from .harness import state as app_state
 from .llm.client import _client  # the configured OpenAI client (LAYER 0 · model access)
 from .tools import RECIPE_TOOL_SCHEMAS, TOOLS
@@ -51,9 +52,55 @@ _MAX_HISTORY_TURNS = 20
 # retry rather than dump the raw token soup at the user.
 _LEAKED_TOOL_CALL = re.compile(r"<\|?tool_call|tool_call\|>", re.IGNORECASE)
 
+# Cook-facing progress labels per tool, so a streaming client can say WHAT the agent
+# is doing during the (3–18s, reasoning-model) wait instead of a blank spinner. The
+# tool's raw name never reaches the user. Unknown tools fall back to "Working".
+_STEP_LABELS = {
+    "search_recipes": "Searching your library",
+    "semantic_search": "Searching your library",
+    "get_recipe": "Reading the recipe",
+    "recipes_from_pantry": "Checking your pantry",
+    "scale_recipe": "Adjusting servings",
+    "generate_meal_plan": "Building a meal plan",
+    "build_shopping_list": "Building a shopping list",
+    "find_substitutions": "Finding substitutions",
+    "preview_recipe_from_url": "Fetching the recipe",
+    "import_recipe_from_url": "Saving the recipe",
+    "research_recipes_online": "Searching the web",
+    "save_recipe": "Saving the recipe",
+    "delete_recipe": "Updating your library",
+    "remove_ingredient": "Updating your library",
+}
+
+
+def _step_label(tool_name: str) -> str:
+    return _STEP_LABELS.get(tool_name, "Working")
+
 
 def run(conn: sqlite3.Connection, user_message: str, *, history=None,
         max_iters: int = 8, system_prompt=SYSTEM) -> str:
+    """Run the loop to completion and return the final prose answer. Thin wrapper
+    over ``run_events`` so /ask and the MCP server keep their exact contract."""
+    answer = "Sorry — I couldn't finish that within the step limit."
+    for event in run_events(conn, user_message, history=history,
+                            max_iters=max_iters, system_prompt=system_prompt):
+        if event["type"] == "answer":
+            answer = event["text"]
+    return answer
+
+
+def run_events(conn: sqlite3.Connection, user_message: str, *, history=None,
+               max_iters: int = 8, system_prompt=SYSTEM) -> Iterator[dict]:
+    """The ReAct loop as a stream of progress events — the single source of truth
+    (``run`` drains this). Yields, in order:
+
+      * ``{"type": "thinking"}``                     — about to call the model
+      * ``{"type": "tool", "name", "label"}``        — a tool call is starting
+      * ``{"type": "answer", "text"}``               — the final prose answer (terminal)
+
+    Exactly one ``answer`` event is emitted, always last. A streaming endpoint can
+    forward these verbatim; a blocking caller keeps only the ``answer``.
+    """
     profile = app_state.preferences_prompt(conn)        # allergies / targets / likes
     system = system_prompt + ("\n\n" + profile if profile else "")
     messages = [{"role": "system", "content": system}]
@@ -68,8 +115,10 @@ def run(conn: sqlite3.Connection, user_message: str, *, history=None,
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_message})
     for _ in range(max_iters):
+        yield {"type": "thinking"}
         resp = _client.chat.completions.create(
-            model=CHAT_MODEL, messages=messages, tools=RECIPE_TOOL_SCHEMAS, temperature=0)
+            model=REASONING_MODEL, messages=messages, tools=RECIPE_TOOL_SCHEMAS,
+            temperature=0, max_tokens=REASONING_MAX_TOKENS)
         msg = resp.choices[0].message
         if not msg.tool_calls:
             content = msg.content or ""
@@ -79,11 +128,13 @@ def run(conn: sqlite3.Connection, user_message: str, *, history=None,
                     "That tool call came through as plain text. Use the function-calling "
                     "interface to call the tool, or reply in normal prose."})
                 continue                            # retry within the iteration budget
-            return content                          # model produced a final prose answer
+            yield {"type": "answer", "text": content}   # final prose answer
+            return
         messages.append(msg)                # assistant turn carrying the tool_calls
 
         for tc in msg.tool_calls:
             fn_name = tc.function.name
+            yield {"type": "tool", "name": fn_name, "label": _step_label(fn_name)}
             args = json.loads(tc.function.arguments or "{}")
             fn = TOOLS.get(fn_name)
             try:
@@ -93,4 +144,4 @@ def run(conn: sqlite3.Connection, user_message: str, *, history=None,
             messages.append({"role": "tool", "tool_call_id": tc.id,
                              "content": json.dumps(result, default=str)})
 
-    return "Sorry — I couldn't finish that within the step limit."
+    yield {"type": "answer", "text": "Sorry — I couldn't finish that within the step limit."}

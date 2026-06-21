@@ -17,6 +17,50 @@ extension URLSession: HTTPSession {
     }
 }
 
+/// Optional streaming capability layered on top of `HTTPSession`. Kept as a SEPARATE
+/// protocol so the `URLProtocol`-based test stub (plain `HTTPSession`) needs no change:
+/// `APIClient` checks for this conformance at runtime and falls back to the blocking
+/// path when it's absent. `URLSession` conforms; stubs don't.
+public protocol HTTPStreamingSession: HTTPSession {
+    /// Issue `request` and deliver the response as `(response, lines)`, where `lines`
+    /// is the body decoded as a stream of UTF-8 lines (Server-Sent Events). The caller
+    /// checks `response` for a 200 status before consuming `lines`.
+    func eventLines(for request: URLRequest) async throws
+        -> (URLResponse, AsyncThrowingStream<String, Error>)
+}
+
+extension URLSession: HTTPStreamingSession {
+    public func eventLines(for request: URLRequest) async throws
+        -> (URLResponse, AsyncThrowingStream<String, Error>) {
+        let (bytes, response) = try await self.bytes(for: request)
+        let lines = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                do {
+                    for try await line in bytes.lines { continuation.yield(line) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (response, lines)
+    }
+}
+
+/// One progress event from the streaming assistant (`POST /ask/stream`), mirroring the
+/// server's `agent.run_events` dicts. The turn always ends with `.answer` (or `.failed`).
+public enum AskEvent: Sendable, Equatable {
+    /// The model is deciding what to do next (one reasoning-model turn).
+    case thinking
+    /// A tool call is starting. `label` is a cook-facing phrase ("Searching your library").
+    case tool(name: String, label: String)
+    /// The final prose answer (terminal).
+    case answer(String)
+    /// A server-reported failure (terminal).
+    case failed(String)
+}
+
 /// Progress event for a multipart upload.
 public struct UploadProgress: Sendable, Hashable {
     /// Bytes sent so far.
@@ -368,6 +412,88 @@ public actor APIClient {
         try await send(.post, path: "/ask",
                        body: AskBody(message: message, history: history, maxIters: maxIters),
                        as: AskResult.self)
+    }
+
+    /// `POST /ask/stream` — the SAME agent run as `ask`, but the body is streamed as
+    /// Server-Sent Events so the UI can show WHAT the agent is doing during the wait
+    /// (the reasoning model can take 10–20s). Yields `AskEvent`s in order, ending with
+    /// `.answer` (the same string `ask` would return).
+    ///
+    /// Throws `CookbookAPIError.streamingUnavailable` if the injected session can't
+    /// stream (e.g. the test stub) or the endpoint isn't present (non-200 — an older
+    /// backend). Callers (`RecipeStore.askStreaming`) catch that and fall back to `ask`.
+    public nonisolated func askStream(
+        message: String, history: [AskTurn]? = nil, maxIters: Int? = nil
+    ) -> AsyncThrowingStream<AskEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await self.streamAsk(message: message, history: history,
+                                             maxIters: maxIters, into: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func streamAsk(
+        message: String, history: [AskTurn]?, maxIters: Int?,
+        into continuation: AsyncThrowingStream<AskEvent, Error>.Continuation
+    ) async throws {
+        guard let streaming = session as? HTTPStreamingSession else {
+            throw CookbookAPIError.streamingUnavailable   // stub/non-URLSession → fall back
+        }
+        var request = try builder.makeRequest(
+            .post, path: "/ask/stream",
+            body: AskBody(message: message, history: history, maxIters: maxIters),
+            bearerToken: await bearerToken())
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        let response: URLResponse
+        let lines: AsyncThrowingStream<String, Error>
+        do {
+            (response, lines) = try await streaming.eventLines(for: request)
+        } catch {
+            throw CookbookAPIError.transport(String(describing: error))
+        }
+        // A non-200 (e.g. 404 on a backend without the endpoint yet, or 401) means the
+        // stream isn't usable — fall back to the blocking path rather than fail the turn.
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw CookbookAPIError.streamingUnavailable
+        }
+        for try await line in lines {
+            // SSE framing: payload lines start with "data:"; blanks/comments are skipped.
+            guard line.hasPrefix("data:") else { continue }
+            let payload = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+            guard !payload.isEmpty, let data = payload.data(using: .utf8),
+                  let raw = try? decoder.decode(RawAskEvent.self, from: data) else { continue }
+            switch raw.type {
+            case "thinking":
+                continuation.yield(.thinking)
+            case "tool":
+                continuation.yield(.tool(name: raw.name ?? "", label: raw.label ?? "Working"))
+            case "answer":
+                continuation.yield(.answer(raw.text ?? ""))
+                return                                  // terminal
+            case "error":
+                continuation.yield(.failed(raw.message ?? "Something went wrong."))
+                return                                  // terminal
+            default:
+                continue
+            }
+        }
+    }
+
+    /// Raw decode shape of one SSE `data:` line from `/ask/stream`.
+    private struct RawAskEvent: Decodable {
+        let type: String
+        let name: String?
+        let label: String?
+        let text: String?
+        let message: String?
     }
 
     /// `POST /recipes/compose` — one turn of the conversational recipe builder.

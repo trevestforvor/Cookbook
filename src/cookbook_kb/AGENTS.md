@@ -18,7 +18,7 @@ The teaching spine (one capability flows up these):
 The substrate (data + model access, not part of the teaching spine):
 - `llm/` — LAYER 0, model access via the LiteLLM proxy (child DOX — holds the model contracts + the `jina` concurrency rule).
 - `ingest/` → `extract/` → `normalize/` → `store/` → `retrieve/` — the Phase 1–5 KB pipeline. `retrieve/` has its own DOX (the semantic-search query-embedding cache contract).
-- `config.py` — typed config loaded from `config.yaml` (`CHAT_MODEL=eagle-nothink`, `EMBED_MODEL=jina`, vector dim 1024).
+- `config.py` — typed config loaded from `config.yaml` (`CHAT_MODEL=eagle-nothink` for guided-JSON extraction/generation; `REASONING_MODEL=eagle` + `REASONING_MAX_TOKENS` for the agentic loops; `EMBED_MODEL=jina`, vector dim 1024).
 
 The REST boundary:
 - `api/` — LAYER A, the FastAPI app wrapping the stack (child DOX — `/ask` latency + async job contracts).

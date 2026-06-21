@@ -76,6 +76,21 @@ LITELLM_API_KEY = LLM_API_KEY
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
 
 CHAT_MODEL = os.environ.get("LLM_CHAT_MODEL") or _llm.get("chat_model")
+# Reasoning/orchestration model for the agentic ReAct loops (agent.run,
+# web_researcher.run). Same endpoint + keys as CHAT_MODEL — only the model name
+# differs ("eagle" = thinking variant). The guided-JSON extraction/generation
+# paths deliberately stay on CHAT_MODEL (the no-think "eagle-nothink"), since
+# thinking burns the decode budget on reasoning instead of emitting JSON.
+REASONING_MODEL = (
+    os.environ.get("LLM_REASONING_MODEL") or _llm.get("reasoning_model") or "eagle"
+)
+# Per-completion token budget for the thinking loops. The reasoning variant spends
+# tokens on `reasoning_content` BEFORE the tool-call/answer, so a tight cap truncates
+# it mid-thought (empty turn). 8K covers reasoning + a tool call comfortably and sits
+# well inside the model's 128K window (Olares serves max-model-len 131072).
+REASONING_MAX_TOKENS = int(
+    os.environ.get("LLM_REASONING_MAX_TOKENS") or _llm.get("reasoning_max_tokens") or 8192
+)
 EMBED_MODEL = os.environ.get("LLM_EMBED_MODEL") or _llm.get("embed_model")
 
 # Whether tools that need an LLM may use MCP host sampling when it's available.

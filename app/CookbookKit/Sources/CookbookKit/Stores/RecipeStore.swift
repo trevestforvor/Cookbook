@@ -216,6 +216,55 @@ public final class RecipeStore {
         }
     }
 
+    /// Streaming assistant turn (`POST /ask/stream`). Relays `AskEvent`s as the agent
+    /// works so the UI can show live progress, then reconciles `/state` + catalog (the
+    /// agent may have mutated both — same as `ask`). Transparently falls back to the
+    /// blocking `ask` when streaming isn't usable (older backend / non-streaming
+    /// session), so the caller's event loop is identical either way: it always ends
+    /// with exactly one `.answer` (unless a genuine error finishes the stream).
+    public func askStreaming(message: String, history: [AskTurn]? = nil,
+                             maxIters: Int? = nil) -> AsyncThrowingStream<AskEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                do {
+                    var sawAnswer = false
+                    var sawAnyEvent = false
+                    do {
+                        for try await event in client.askStream(
+                            message: message, history: history, maxIters: maxIters) {
+                            sawAnyEvent = true
+                            continuation.yield(event)
+                            if case .answer = event { sawAnswer = true }
+                        }
+                    } catch let error as CookbookAPIError where error.isStreamingUnavailable {
+                        // Streaming not usable (stub session / endpoint absent) → fall back.
+                    } catch {
+                        // A failure AFTER events began would mean re-running the agent
+                        // (double any tool-side mutations) if we fell back — so propagate.
+                        // A failure with no events yet is safe to fall back from.
+                        if sawAnyEvent { throw error }
+                    }
+                    if !sawAnswer {
+                        continuation.yield(.thinking)
+                        let result = try await client.ask(
+                            message: message, history: history, maxIters: maxIters)
+                        continuation.yield(.answer(result.answer))
+                    }
+                    // The agent can write favorites/pantry (→ /state) AND the catalog
+                    // (import / delete bump the version). Reconcile both before finishing.
+                    await sync.hydrateState()
+                    await sync.syncCatalog()
+                    lastError = nil
+                    continuation.finish()
+                } catch {
+                    lastError = String(describing: error)
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: - Planner / shopping list (promoted from PlannerView)
     //
     // The deterministic planner and shopping-list endpoints have no store home; the

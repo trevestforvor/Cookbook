@@ -53,6 +53,9 @@ public struct AssistantView: View {
     @State private var messages: [ChatMessage]
     @State private var draft: String = ""
     @State private var isThinking = false
+    /// The agent's current step while `isThinking` (e.g. "Searching your library…"),
+    /// streamed from `/ask/stream`. `nil` falls back to a generic "Thinking…".
+    @State private var currentStep: String?
     @State private var sendTask: Task<Void, Never>?
     @State private var composeTask: Task<Void, Never>?
 
@@ -224,14 +227,14 @@ public struct AssistantView: View {
                     }
 
                     if isThinking {
-                        ThinkingRow()
+                        ThinkingRow(label: currentStep ?? "Thinking…")
                             .id(Self.thinkingAnchorID)
                     }
 
                     if composeStore.isWorking && composeStore.draft == nil {
                         // First compose turn (no draft yet) — show the working row so
                         // the slow LLM call isn't silent.
-                        ThinkingRow()
+                        ThinkingRow(label: "Building the recipe…")
                             .id(Self.draftAnchorID)
                     }
 
@@ -571,20 +574,40 @@ public struct AssistantView: View {
         messages.append(ChatMessage(role: .user, text: text))
         draft = ""
         isThinking = true
+        currentStep = "Thinking…"
 
         let store = environment.recipeStore
         sendTask?.cancel()
         sendTask = Task {
-            // The promoted `RecipeStore.ask` is non-throwing (returns nil on
-            // failure, recording `lastError`) and reconciles `/state` + the recipe
-            // catalog afterward so any server-side mutations the agent makes
-            // (favorites, pantry, imports, deletes, …) show up in the library.
-            let answer = await store.ask(message: text, history: history)
+            // `RecipeStore.askStreaming` relays the agent's progress (thinking → tool
+            // steps → answer) so the wait isn't a blank spinner, then reconciles
+            // `/state` + the catalog so any server-side mutations the agent makes
+            // (favorites, pantry, imports, deletes, …) show up in the library. It
+            // transparently falls back to the blocking `/ask` on an older backend.
+            var finalAnswer: String?
+            var failure: String?
+            do {
+                for try await event in store.askStreaming(message: text, history: history) {
+                    if Task.isCancelled { return }
+                    switch event {
+                    case .thinking:
+                        currentStep = "Thinking…"
+                    case .tool(_, let label):
+                        currentStep = "\(label)…"
+                    case .answer(let answer):
+                        finalAnswer = answer
+                    case .failed(let message):
+                        failure = message
+                    }
+                }
+            } catch {
+                failure = store.lastError ?? String(describing: error)
+            }
             guard !Task.isCancelled else { return }
-            if let answer {
-                appendAssistant(ChatMessage(role: .assistant, text: answer))
+            if let finalAnswer {
+                appendAssistant(ChatMessage(role: .assistant, text: finalAnswer))
             } else {
-                let reason = store.lastError ?? "Something went wrong."
+                let reason = failure ?? store.lastError ?? "Something went wrong."
                 appendAssistant(ChatMessage(
                     role: .assistant,
                     text: "Sorry — I couldn't reach the kitchen just now.\n\n\(reason)",
@@ -597,6 +620,7 @@ public struct AssistantView: View {
     @MainActor
     private func appendAssistant(_ message: ChatMessage) {
         isThinking = false
+        currentStep = nil
         messages.append(message)
     }
 
@@ -926,8 +950,11 @@ private struct MessageRow: View {
     }
 }
 
-/// The animated "working…" status row shown while a reply is in flight.
+/// The animated status row shown while a reply is in flight. `label` is the agent's
+/// current step (streamed: "Searching your library…", "Reading the recipe…"), so the
+/// wait shows live progress instead of a static spinner. Animates label changes.
 private struct ThinkingRow: View {
+    let label: String
     @State private var pulse = false
 
     var body: some View {
@@ -935,10 +962,12 @@ private struct ThinkingRow: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(Color.appAccent)
-            Text("Working\u{2026}")
+            Text(label)
                 .font(.appCaption)
                 .foregroundStyle(Color.appTextSecondary)
                 .opacity(pulse ? 0.5 : 1.0)
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: label)
         }
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.sm)
@@ -957,6 +986,7 @@ private struct ThinkingRow: View {
             }
         }
         .accessibilityLabel("Assistant is working")
+        .accessibilityValue(label)
     }
 }
 
