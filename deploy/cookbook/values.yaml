@@ -8,11 +8,12 @@ userspace:
 image:
   repository: "ghcr.io/trevestforvor/cookbook"
   # Pin to the immutable CI SHA tag (GHCR publishes sha-<commit> + latest, no
-  # semver tags). sha-7c45d3f = assistant add/edit/delete + confirm-before-add, AND
-  # URL imports are now idempotent (re-adding a URL REPLACES the existing recipe
-  # instead of duplicating). Builds on sha-d2ff797. Verified end-to-end against the
-  # live LLM. Bump on each new CI image.
-  tag: "sha-7c45d3f"
+  # semver tags). sha-2c2bf78 = SSE streaming /ask/stream (agent.run_events streamed
+  # as Server-Sent Events so the app shows what the agent is doing during the
+  # reasoning-model wait) + split chat/reasoning models (eagle-nothink for guided
+  # JSON, eagle thinking @ 8K for the ReAct loops). Builds on sha-7c45d3f (idempotent
+  # URL imports). Bump on each new CI image.
+  tag: "sha-2c2bf78"
 # Olares injects user-supplied env values (declared in OlaresManifest `envs:`)
 # here at deploy time via .Values.olaresEnv.<envName>. The marketplace surfaces
 # those as editable fields at install/settings time -- this is how the user
