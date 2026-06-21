@@ -56,8 +56,12 @@ def run_job(job: Job, store: JobStore) -> None:
                         filename=job.filename, source=source,
                         created_at=job.created_at)
 
+    last_stage: str | None = None
+
     def progress(stage: str, done: int, total: int) -> None:
         # Mirror every milestone to the in-memory job (live polling) AND the row.
+        nonlocal last_stage
+        last_stage = stage
         store.update(job, status="running", stage=stage,
                      recipes_done=done, recipes_total=total)
         job_rows.update(conn, job.job_id, status="running", stage=stage,
@@ -90,13 +94,19 @@ def run_job(job: Job, store: JobStore) -> None:
         else:
             raise ValueError(f"unknown ingest kind: {job.kind!r}")
 
+        # Preserve a dedup short-circuit (`progress("skipped", …)` then return []) as
+        # a distinct terminal stage so the client can say "Already in your library"
+        # instead of a bare "Done / 0 recipes" — otherwise a re-drop looks like a
+        # no-op failure. Any other empty result stays a normal "done".
+        terminal_stage = "skipped" if last_stage == "skipped" else "done"
+
         # Commit the DURABLE row BEFORE flipping the in-memory job to a terminal
         # state. GET /ingest reads the in-memory job, so anyone who observes "done"
         # must be guaranteed the committed row (recipe_ids, counts) is already there.
-        job_rows.update(conn, job.job_id, status="done", stage="done",
+        job_rows.update(conn, job.job_id, status="done", stage=terminal_stage,
                         recipe_ids=new_ids,
                         recipes_done=len(new_ids), recipes_total=len(new_ids))
-        store.update(job, status="done", stage="done",
+        store.update(job, status="done", stage=terminal_stage,
                      recipe_ids=new_ids,
                      recipes_done=len(new_ids), recipes_total=len(new_ids))
     except Exception as e:

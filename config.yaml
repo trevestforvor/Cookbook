@@ -6,6 +6,7 @@ llm:
   reasoning_model: eagle     # Gemma 4 26B, THINKING variant (same endpoint+keys). Used for the agentic ReAct loops (agent.run, web_researcher.run).
   reasoning_max_tokens: 8192 # per-completion budget for the thinking loops: must cover reasoning_content + the tool-call/answer. Model serves a 128K window on Olares (max-model-len 131072), so this is comfortably in-budget across max_iters.
   embed_model: jina          # served via LiteLLM (Jina small text); dim read at index time
+  vlm_extraction: true       # scanned pages: extract recipe DIRECTLY from the page image via the (multimodal) chat model, not Tesseract OCR. Same speed, far more accurate on 2-column layouts. Falls back to OCR per-candidate on failure.
   embed_dim: null            # set when an embedding model is picked
   max_tokens: 2048
   temperature: 0.0

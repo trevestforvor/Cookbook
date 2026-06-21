@@ -93,6 +93,16 @@ REASONING_MAX_TOKENS = int(
 )
 EMBED_MODEL = os.environ.get("LLM_EMBED_MODEL") or _llm.get("embed_model")
 
+# Use the (now multimodal) chat model to extract recipes DIRECTLY from scanned page
+# images instead of Tesseract OCR → text → extract. On real scanned cookbook pages
+# this is ~the same latency but materially more accurate: Tesseract garbles 2-column
+# layouts (measured: 360 kcal mis-OCR'd as 3560). Per-candidate the pipeline falls
+# back to the OCR-text path if the image extract fails. Set to false to force OCR.
+VLM_EXTRACTION = (
+    os.environ.get("LLM_VLM_EXTRACTION", str(_llm.get("vlm_extraction", True)))
+    .lower() not in ("0", "false", "no")
+)
+
 # Whether tools that need an LLM may use MCP host sampling when it's available.
 # Default on; embeddings + guided-JSON + tool-calling always use the provider
 # above (sampling can't do those) — see llm/provider.py.

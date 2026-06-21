@@ -37,7 +37,7 @@ import numpy as np
 from .. import config
 from ..config import EMBED_MODEL
 from ..extract import boundaries
-from ..extract.extractor import extract_recipe
+from ..extract.extractor import extract_recipe, extract_recipe_from_image
 from ..llm.client import embed
 from ..normalize.canonical import Canonicalizer, load_aliases
 from ..normalize.foods import FoodMatcher
@@ -217,8 +217,9 @@ def ingest_one_pdf(
     matcher = matcher or FoodMatcher(conn)
 
     # 1) load — PDF text + OCR for scanned pages (sequential; MuPDF isn't doc-safe).
-    progress("loading", 0, 0)
-    pages = loader.load(path)
+    #    Reports per-page so the slow OCR phase shows live movement ("Reading pages
+    #    3/12") instead of a single frozen "loading" before the LLM stage begins.
+    pages = loader.load(path, progress=progress)
 
     # 2) boundaries — stitch two-page recipes into candidate spans.
     cands = boundaries.candidates(pages)
@@ -231,7 +232,21 @@ def ingest_one_pdf(
     #    place for fan-out).
     raws: list[dict] = []
     for done, c in enumerate(cands, start=1):
-        rec, err = extract_recipe(c.text)
+        # Prefer reading the page IMAGE(s) with the multimodal model — it parses
+        # 2-column recipe layouts that Tesseract garbles. Cap at 2 images (the served
+        # model's per-prompt limit). Fall back to the OCR text on any image-extract
+        # miss, so a vision hiccup never drops a recipe the text path could have got.
+        imgs = []
+        if config.VLM_EXTRACTION:
+            imgs = [pages[p].image_png
+                    for p in range(c.page_start, c.page_end + 1)
+                    if 0 <= p < len(pages) and pages[p].image_png][:2]
+        if imgs:
+            rec, err = extract_recipe_from_image(imgs)
+            if err or rec is None or not rec.is_recipe:
+                rec, err = extract_recipe(c.text)   # fallback
+        else:
+            rec, err = extract_recipe(c.text)
         if not (err or rec is None or not rec.is_recipe):
             d = rec.model_dump()
             d["page_start"], d["page_end"] = c.page_start, c.page_end
