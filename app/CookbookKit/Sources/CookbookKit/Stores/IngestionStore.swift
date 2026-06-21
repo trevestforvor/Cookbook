@@ -42,7 +42,21 @@ public final class IngestionStore {
             // Authoritative replace (delete-missing + upsert), NOT a merge: an
             // upsert-only refresh left server-cleared/-deleted jobs lingering in the
             // mirror, so they reappeared on the next Import-screen visit.
-            try await mirror.replaceIngestJobs(serverJobs)
+            //
+            // BUT preserve optimistic, still-UPLOADING rows the server doesn't know
+            // about yet — otherwise a just-dropped PDF vanishes for the entire upload
+            // (it reappears only once the server registers the job, ~30-45s for a big
+            // scan). `stage == "uploading"` is a CLIENT-ONLY marker the server never
+            // emits, so it cleanly identifies these. Drop stale ones (>2 min, e.g. an
+            // upload interrupted by an app kill) so they can't ghost forever — a live
+            // upload keeps `updatedAt` fresh via `applyUploadProgress`.
+            let cutoff = Date().addingTimeInterval(-120)
+            let serverIds = Set(serverJobs.map(\.jobId))
+            let inflight = jobs.filter {
+                $0.stage == "uploading" && !serverIds.contains($0.jobId)
+                    && ($0.updatedAt ?? .distantPast) > cutoff
+            }
+            try await mirror.replaceIngestJobs(serverJobs + inflight)
             jobs = try await mirror.ingestJobs()
             lastError = nil
         } catch {
@@ -83,7 +97,10 @@ public final class IngestionStore {
         filename: String,
         upload: (String, @escaping @Sendable (UploadProgress) -> Void) async throws -> IngestJobHandle
     ) async -> Bool {
-        let clientId = "pending-\(UUID().uuidString)"
+        // A clean client id the server can ADOPT as the job id (sent via job_id) — the
+        // optimistic row is identified for refresh-preservation by its "uploading"
+        // stage, not by this id, so no marker prefix is needed.
+        let clientId = UUID().uuidString
         isStarting = true
         defer { isStarting = false }
         await seedUploading(jobId: clientId, filename: filename)   // instant, pre-upload
