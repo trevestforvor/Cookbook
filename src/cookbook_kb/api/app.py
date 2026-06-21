@@ -12,11 +12,14 @@ existing LAYER-1/3/5 functions.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 
 from fastapi import FastAPI
 
 from .. import config
+from ..store import db
+from ..store import ingest_jobs as job_rows
 from .jobs import JobStore
 from .routers import compose as compose_router
 from .routers import ingest as ingest_router
@@ -50,6 +53,22 @@ def create_app() -> FastAPI:
     # parallel ingests don't pile up and a few stuck jobs can't block the whole queue.
     app.state.job_store = JobStore(max_workers=config.JOB_WORKERS)
     app.state.job_store.WORKER = run_job
+
+    # Reconcile zombie jobs from a prior process: the in-memory store is empty on a
+    # fresh start and the worker never resumes a durable row, so any row left
+    # `running`/`queued` is orphaned. Flip them to a terminal `error` so they don't
+    # sit "running" in the app forever (GET /ingest merges these durable rows).
+    try:
+        conn = db.connect(str(config.db_path()))
+        try:
+            n = job_rows.fail_orphaned(conn)
+            if n:
+                logging.getLogger("cookbook_kb.api").info(
+                    "startup: reconciled %d orphaned ingest job(s) to error", n)
+        finally:
+            conn.close()
+    except Exception:  # never let bookkeeping block startup
+        logging.getLogger("cookbook_kb.api").exception("startup orphan reconcile failed")
 
     @app.get("/health")
     def health() -> dict:

@@ -7,7 +7,7 @@ The only path to language + embedding models. Everything above (`agent.py`, `ret
 ## Ownership
 
 - `client.py` — the configured OpenAI-compatible client (`_client`) + `embed(texts)`. `CHAT_MODEL`/`EMBED_MODEL` come from `config.py`.
-- `provider.py` — provider wiring for the LiteLLM proxy.
+- `provider.py` — provider wiring for the LiteLLM proxy. The shared `OpenAI()` client is bounded (`config.LLM_REQUEST_TIMEOUT` default 180s + `LLM_MAX_RETRIES` default 1) so a hung proxy call can't block an ingest worker for the SDK default ~30 min.
 
 ## Local Contracts
 

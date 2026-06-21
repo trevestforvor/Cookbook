@@ -33,7 +33,9 @@ from ..config import (
     EMBED_MODEL,
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_MAX_RETRIES,
     LLM_PROVIDER,
+    LLM_REQUEST_TIMEOUT,
 )
 
 log = logging.getLogger("cookbook_kb.llm")  # to stderr; safe under stdio transport
@@ -57,7 +59,10 @@ def get_client() -> OpenAI:
                  LLM_PROVIDER, CHAT_MODEL, host, "set" if LLM_API_KEY else "missing")
         if LLM_PROVIDER == "litellm" and not LLM_BASE_URL:
             log.warning("LLM_PROVIDER=litellm but LLM_BASE_URL is empty — set it to your proxy URL.")
-        _client = OpenAI(base_url=LLM_BASE_URL or None, api_key=LLM_API_KEY or "not-needed")
+        # Bound timeout + retries so a hung proxy fails the call (and frees the ingest
+        # worker) in minutes, not the SDK default ~30 min. See config.LLM_REQUEST_TIMEOUT.
+        _client = OpenAI(base_url=LLM_BASE_URL or None, api_key=LLM_API_KEY or "not-needed",
+                         timeout=LLM_REQUEST_TIMEOUT, max_retries=LLM_MAX_RETRIES)
     return _client
 
 

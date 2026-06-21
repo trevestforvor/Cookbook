@@ -93,6 +93,16 @@ REASONING_MAX_TOKENS = int(
 )
 EMBED_MODEL = os.environ.get("LLM_EMBED_MODEL") or _llm.get("embed_model")
 
+# Bound every LLM/embed call so a hung proxy can't strand an ingest worker. The
+# OpenAI SDK default is ~600s × 2 retries (~30 min) — that froze ingest jobs for
+# half an hour. 180s is generous for a real call (extract ~4s, embed ~2s, /ask
+# 3-18s, slower only under heavy contention) but kills a true hang; 1 retry covers a
+# transient blip without multiplying the worst case. Env/config overridable.
+LLM_REQUEST_TIMEOUT = float(
+    os.environ.get("LLM_REQUEST_TIMEOUT") or _llm.get("request_timeout") or 180
+)
+LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES") or _llm.get("max_retries") or 1)
+
 # Use the (now multimodal) chat model to extract recipes DIRECTLY from scanned page
 # images instead of Tesseract OCR → text → extract. On real scanned cookbook pages
 # this is ~the same latency but materially more accurate: Tesseract garbles 2-column

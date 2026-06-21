@@ -105,6 +105,24 @@ def clear(conn: sqlite3.Connection, *, only_terminal: bool = False) -> int:
     return cur.rowcount
 
 
+def fail_orphaned(conn: sqlite3.Connection) -> int:
+    """Mark non-terminal rows (`queued`/`running`/anything not done|error) as `error`.
+
+    Called once on server startup: the in-memory `JobStore` is empty on a fresh
+    process, and the worker NEVER resumes a durable row, so any `running`/`queued`
+    row left by a prior process is a zombie that would otherwise sit "running" in the
+    app forever (GET /ingest merges these durable rows). Flipping them to a terminal
+    `error` makes them honestly show as interrupted instead of frozen. Returns the
+    number reconciled."""
+    cur = conn.execute(
+        "UPDATE ingest_jobs SET status = 'error', stage = 'error', "
+        "error = 'interrupted — the server restarted before this import finished' "
+        "WHERE status NOT IN ('done', 'error')"
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 def _public(row: sqlite3.Row) -> dict:
     d = dict(row)
     raw = d.pop("recipe_ids_json", None)
