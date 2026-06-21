@@ -148,6 +148,7 @@ struct JobsList: View {
 /// This enum gives the timeline a stable order and labels, and maps a job onto a
 /// "current stage index" so completed stages can show a check.
 enum IngestStage: Int, CaseIterable, Identifiable {
+    case uploading
     case queued
     case loading
     case extracting
@@ -159,6 +160,7 @@ enum IngestStage: Int, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .uploading: return "Uploading"
         case .queued: return "Queued"
         case .loading: return "Loading"
         case .extracting: return "Extracting recipes"
@@ -170,6 +172,7 @@ enum IngestStage: Int, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .uploading: return "arrow.up.doc"
         case .queued: return "clock"
         case .loading: return "doc.text"
         case .extracting: return "text.book.closed"
@@ -183,6 +186,7 @@ enum IngestStage: Int, CaseIterable, Identifiable {
     /// vocabulary so the timeline still advances if the server renames a step.
     static func from(rawStage: String?) -> IngestStage? {
         guard let raw = rawStage?.lowercased(), !raw.isEmpty else { return nil }
+        if raw.contains("upload") { return .uploading }
         if raw.contains("queue") { return .queued }
         if raw.contains("load") || raw.contains("download") || raw.contains("fetch") || raw.contains("parse") { return .loading }
         if raw.contains("extract") { return .extracting }
@@ -230,12 +234,22 @@ extension IngestJob {
     }
 
     /// True when a determinate progress bar makes sense (we know a unit count and
-    /// we're in a counting phase). Includes `.loading` so the per-page OCR phase shows
-    /// live movement instead of a frozen label for the whole (slow) pre-LLM stretch.
+    /// we're in a counting phase). Includes `.uploading` (bytes %) and `.loading`
+    /// (per-page OCR) so the whole pre-LLM stretch shows live movement, not a frozen
+    /// label, while the big file uploads and OCRs.
     var hasDeterminateProgress: Bool {
         recipesTotal > 0
-            && (currentStage == .loading || currentStage == .extracting || currentStage == .embedding)
+            && (currentStage == .uploading || currentStage == .loading
+                || currentStage == .extracting || currentStage == .embedding)
             && status == .running
+    }
+
+    /// The trailing detail next to the stage label. During `.uploading` the count is a
+    /// byte PERCENT ("45%"); elsewhere it's a unit count ("3/12" pages or recipes).
+    var progressDetail: String? {
+        guard hasDeterminateProgress else { return nil }
+        if currentStage == .uploading { return "\(recipesDone)%" }
+        return "\(recipesDone)/\(recipesTotal)"
     }
 
     /// A short source descriptor for the row title.
@@ -316,8 +330,8 @@ struct JobRow: View {
                     Text(job.stageLabel)
                         .font(.appCaption)
                         .foregroundStyle(Color.appTextSecondary)
-                    if job.hasDeterminateProgress {
-                        Text("\(job.recipesDone)/\(job.recipesTotal)")
+                    if let detail = job.progressDetail {
+                        Text(detail)
                             .font(.statNumber)
                             .foregroundStyle(Color.appTextSecondary)
                     }
@@ -514,8 +528,8 @@ private struct StageTimeline: View {
 
             Spacer(minLength: 0)
 
-            if state == .active, job.hasDeterminateProgress {
-                Text("\(job.recipesDone)/\(job.recipesTotal)")
+            if state == .active, let detail = job.progressDetail {
+                Text(detail)
                     .font(.statNumber)
                     .foregroundStyle(Color.appTextSecondary)
             } else if state == .active {

@@ -741,6 +741,13 @@ public struct AssistantView: View {
     /// file came from the document picker (outside the app sandbox).
     private func startPDFIngest(fileURL: URL, securityScoped: Bool = false) {
         let name = fileURL.lastPathComponent
+        // Instant feedback, BEFORE the (slow, possibly 30 MB) upload — the old code
+        // posted this only after the upload returned, so a big PDF looked like nothing
+        // happened for 45-60s. The job ALSO appears in Activity immediately as an
+        // "Uploading…" row (IngestionStore seeds it optimistically) with a live badge.
+        appendAssistant(ChatMessage(
+            role: .assistant,
+            text: "Importing \(name) \u{2014} uploading now; watch each step in Activity (top-right)."))
         Task {
             let started: Bool
             if securityScoped {
@@ -755,16 +762,9 @@ public struct AssistantView: View {
             } else {
                 started = await environment.ingestionStore.ingestPDF(fileURL: fileURL)
             }
-            // Surface the outcome in the transcript instead of a banner that shows
-            // even when the import never started. On success the job is queued +
-            // polling (watch it in Activity); on failure show the real reason so a
-            // failed upload/extraction isn't silent ("can't see anything happening").
-            if started {
-                appendAssistant(ChatMessage(
-                    role: .assistant,
-                    text: "Importing \(name) \u{2014} I'll add its recipes to your library. "
-                        + "Track progress in Activity (top-right)."))
-            } else {
+            // Only need to speak up again on FAILURE — success is already covered by
+            // the message above + the live Activity row.
+            if !started {
                 let reason = environment.ingestionStore.lastError ?? "Something went wrong."
                 appendAssistant(ChatMessage(
                     role: .assistant,

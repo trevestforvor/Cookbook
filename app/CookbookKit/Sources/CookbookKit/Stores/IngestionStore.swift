@@ -52,54 +52,107 @@ public final class IngestionStore {
 
     /// Start a PDF ingestion (`POST /ingest`) from a file URL and begin polling.
     /// Returns `true` once the job is queued + tracked, `false` on failure (with the
-    /// reason in `lastError`) — so the caller can show the right feedback instead of a
-    /// blanket "importing" confirmation that lies when the upload/extraction failed.
+    /// reason in `lastError`). The job row appears in Activity IMMEDIATELY (an
+    /// optimistic "uploading" row), before the multipart upload finishes — see
+    /// `runPDFIngest`.
     @discardableResult
     public func ingestPDF(fileURL: URL, title: String? = nil, author: String? = nil) async -> Bool {
+        await runPDFIngest(filename: fileURL.lastPathComponent) { id, prog in
+            try await self.client.ingestPDF(
+                fileURL: fileURL, title: title, author: author, jobId: id, progress: prog)
+        }
+    }
+
+    /// Start a PDF ingestion from in-memory data. See `ingestPDF(fileURL:)`.
+    @discardableResult
+    public func ingestPDF(data: Data, filename: String, title: String? = nil, author: String? = nil) async -> Bool {
+        await runPDFIngest(filename: filename) { id, prog in
+            try await self.client.ingestPDF(
+                data: data, filename: filename, title: title, author: author, jobId: id, progress: prog)
+        }
+    }
+
+    /// Shared PDF-ingest driver. Seeds an OPTIMISTIC "uploading" row under a
+    /// client-generated id BEFORE the (slow, possibly 30 MB) multipart upload, so the
+    /// job shows in Activity the instant the cook picks a file — not 45-60s later when
+    /// the upload completes. Threads that id to the server (it adopts it); reconciles
+    /// to the server's id if an older backend assigns its own. The upload's byte
+    /// progress drives the row ("Uploading 45%"); then polling takes over the stages.
+    @discardableResult
+    private func runPDFIngest(
+        filename: String,
+        upload: (String, @escaping @Sendable (UploadProgress) -> Void) async throws -> IngestJobHandle
+    ) async -> Bool {
+        let clientId = "pending-\(UUID().uuidString)"
         isStarting = true
-        uploadProgress = UploadProgress(bytesSent: 0, totalBytes: 0)
         defer { isStarting = false }
+        await seedUploading(jobId: clientId, filename: filename)   // instant, pre-upload
         do {
-            let handle = try await client.ingestPDF(
-                fileURL: fileURL, title: title, author: author,
-                progress: { [weak self] p in
-                    Task { @MainActor in self?.uploadProgress = p }
-                })
-            uploadProgress = nil
-            try await seed(jobId: handle.jobId, kind: .pdf, filename: fileURL.lastPathComponent, status: handle.status)
+            let handle = try await upload(clientId) { [weak self] p in
+                Task { @MainActor in self?.applyUploadProgress(jobId: clientId, p) }
+            }
+            await reconcileSeeded(from: clientId, to: handle, filename: filename)
             startPolling(jobId: handle.jobId)
+            uploadProgress = nil
             lastError = nil
             return true
         } catch {
             uploadProgress = nil
+            await markUploadFailed(jobId: clientId, filename: filename,
+                                   message: String(describing: error))
             lastError = String(describing: error)
             return false
         }
     }
 
-    /// Start a PDF ingestion from in-memory data. See `ingestPDF(fileURL:)` for the
-    /// `Bool` success contract.
-    @discardableResult
-    public func ingestPDF(data: Data, filename: String, title: String? = nil, author: String? = nil) async -> Bool {
-        isStarting = true
-        uploadProgress = UploadProgress(bytesSent: 0, totalBytes: Int64(data.count))
-        defer { isStarting = false }
-        do {
-            let handle = try await client.ingestPDF(
-                data: data, filename: filename, title: title, author: author,
-                progress: { [weak self] p in
-                    Task { @MainActor in self?.uploadProgress = p }
-                })
-            uploadProgress = nil
-            try await seed(jobId: handle.jobId, kind: .pdf, filename: filename, status: handle.status)
-            startPolling(jobId: handle.jobId)
-            lastError = nil
-            return true
-        } catch {
-            uploadProgress = nil
-            lastError = String(describing: error)
-            return false
+    /// The optimistic pre-upload row: status `.running`, stage `"uploading"`, shown
+    /// instantly (counts toward the Activity badge). Written to the mirror so it
+    /// survives a refresh, and inserted into the live `jobs` array right away.
+    private func seedUploading(jobId: String, filename: String) async {
+        let now = Date()
+        let job = IngestJob(
+            jobId: jobId, kind: .pdf, filename: filename, status: .running,
+            stage: "uploading", recipesDone: 0, recipesTotal: 0, recipeIds: [],
+            error: nil, createdAt: now, updatedAt: now)
+        try? await mirror.upsertIngestJob(job)
+        applyJobUpdate(job)
+        uploadProgress = UploadProgress(bytesSent: 0, totalBytes: 0)
+    }
+
+    /// Live upload-byte progress → the row's percentage (in-memory only; no per-tick
+    /// mirror write — the upload can fire many progress callbacks).
+    private func applyUploadProgress(jobId: String, _ p: UploadProgress) {
+        uploadProgress = p
+        guard let idx = jobs.firstIndex(where: { $0.jobId == jobId }) else { return }
+        var job = jobs[idx]
+        job.stage = "uploading"
+        job.recipesTotal = 100
+        job.recipesDone = Int((p.fraction * 100).rounded())
+        job.updatedAt = Date()
+        jobs[idx] = job
+    }
+
+    /// Once the upload returns, adopt the server's id (no-op if it honored ours) and
+    /// flip the row out of "uploading" to the server's queued status; polling drives
+    /// the rest of the stages.
+    private func reconcileSeeded(from clientId: String, to handle: IngestJobHandle, filename: String) async {
+        if handle.jobId != clientId {
+            jobs.removeAll { $0.jobId == clientId }
+            try? await mirror.deleteIngestJobLocally(jobId: clientId)
         }
+        try? await seed(jobId: handle.jobId, kind: .pdf, filename: filename, status: handle.status)
+    }
+
+    /// A failed upload must not leave the optimistic row stuck on "uploading" — flip
+    /// it to an error row carrying the reason.
+    private func markUploadFailed(jobId: String, filename: String, message: String) async {
+        let now = Date()
+        let job = IngestJob(
+            jobId: jobId, kind: .pdf, filename: filename, status: .error,
+            stage: "error", recipesDone: 0, recipesTotal: 0, recipeIds: [],
+            error: message, createdAt: now, updatedAt: now)
+        try? await mirror.upsertIngestJob(job)
+        applyJobUpdate(job)
     }
 
     /// Start a URL ingestion (`POST /ingest/url`) and begin polling.

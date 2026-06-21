@@ -575,6 +575,7 @@ public actor APIClient {
         fileURL: URL,
         title: String? = nil,
         author: String? = nil,
+        jobId: String? = nil,
         progress: (@Sendable (UploadProgress) -> Void)? = nil
     ) async throws -> IngestJobHandle {
         let data: Data
@@ -585,21 +586,27 @@ public actor APIClient {
         }
         return try await ingestPDF(
             data: data, filename: fileURL.lastPathComponent,
-            title: title, author: author, progress: progress)
+            title: title, author: author, jobId: jobId, progress: progress)
     }
 
-    /// `POST /ingest` (multipart) from in-memory data — the testable core.
+    /// `POST /ingest` (multipart) from in-memory data — the testable core. `jobId`
+    /// (optional) is sent as a form field so the server adopts the SAME id the client
+    /// seeded its optimistic "uploading" row under (backward-compatible: an older
+    /// backend ignores the extra field and assigns its own id, which the store then
+    /// reconciles).
     public func ingestPDF(
         data: Data,
         filename: String,
         title: String? = nil,
         author: String? = nil,
+        jobId: String? = nil,
         progress: (@Sendable (UploadProgress) -> Void)? = nil
     ) async throws -> IngestJobHandle {
         var form = MultipartFormData()
         form.addFile(name: "file", filename: filename, mimeType: "application/pdf", data: data)
         if let title, !title.isEmpty { form.addField(name: "title", value: title) }
         if let author, !author.isEmpty { form.addField(name: "author", value: author) }
+        if let jobId, !jobId.isEmpty { form.addField(name: "job_id", value: jobId) }
         let bodyData = form.finalizedBody()
 
         let url = try builder.makeURL(path: "/ingest")
