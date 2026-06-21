@@ -48,8 +48,13 @@ public struct RecipeQuery: Sendable, Hashable {
         self.limit = limit
     }
 
-    /// Empty query — returns the full catalog.
-    public static let all = RecipeQuery()
+    /// The full catalog. Carries an explicit high `limit` so the server returns
+    /// EVERY recipe: `GET /recipes` with NO limit falls back to a server-side default
+    /// (was a fixed 1000) that silently truncated the sync once the library passed 1k.
+    /// An explicit limit is passed straight through to SQL, so this works against the
+    /// CURRENTLY-DEPLOYED backend with no redeploy. 100k is far above any real library;
+    /// the response is still only as large as the actual catalog.
+    public static let all = RecipeQuery(limit: 100_000)
 
     /// Maps to the contract's snake_case query keys.
     public var queryItems: [URLQueryItem] {

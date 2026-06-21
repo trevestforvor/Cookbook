@@ -54,14 +54,17 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(req.httpMethod, "GET")
     }
 
-    func testRecipesAllSendsNoQueryParams() async throws {
+    func testRecipesAllSendsHighLimitOnly() async throws {
         respond(#"{"recipes": []}"#)
         let client = StubURLProtocol.makeClient()
         _ = try await client.recipes(.all)
         let req = try lastRequest()
         let comps = try XCTUnwrap(URLComponents(url: req.url!, resolvingAgainstBaseURL: false))
         XCTAssertEqual(comps.path, "/recipes")
-        XCTAssertNil(comps.queryItems)
+        // `.all` carries an explicit high limit (no filter params) so the server
+        // returns the WHOLE catalog — a no-limit pull falls back to a server-side
+        // default that silently capped the sync at 1000.
+        XCTAssertEqual(comps.queryItems, [URLQueryItem(name: "limit", value: "100000")])
     }
 
     func testSemanticSearchURL() async throws {
