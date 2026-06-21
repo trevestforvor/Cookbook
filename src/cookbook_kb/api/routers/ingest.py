@@ -43,6 +43,7 @@ async def ingest_pdf(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     author: str | None = Form(default=None),
+    job_id: str | None = Form(default=None),
 ) -> dict:
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
@@ -57,9 +58,10 @@ async def ingest_pdf(
                 "title": title or Path(file.filename).stem,
                 "author": author}
     # `meta` is attached to the Job BEFORE it is submitted, so the worker can
-    # never start and read an unset `ingest_meta`.
+    # never start and read an unset `ingest_meta`. `job_id` (optional) lets the app
+    # use the id it already seeded its optimistic "uploading" row under.
     job = _store(request).create(kind="pdf", filename=file.filename,
-                                 url=None, meta=job_meta)
+                                 url=None, meta=job_meta, job_id=job_id)
     # Durable queued mirror. This handler is `async`, so it runs on the event-loop
     # thread while `get_conn`'s connection is created in a threadpool thread —
     # sqlite3 forbids cross-thread use. Open a short-lived connection HERE instead

@@ -67,8 +67,12 @@ class JobStore:
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     def create(self, *, kind: str, filename: str | None = None,
-               url: str | None = None, meta: dict | None = None) -> Job:
-        job = Job(job_id=uuid.uuid4().hex, kind=kind, filename=filename, url=url)
+               url: str | None = None, meta: dict | None = None,
+               job_id: str | None = None) -> Job:
+        # An optional client-provided id lets the app seed an optimistic "uploading"
+        # row under the SAME id it will poll, so the job shows in the UI the instant
+        # the user picks a file (before the multipart upload finishes) — no id swap.
+        job = Job(job_id=job_id or uuid.uuid4().hex, kind=kind, filename=filename, url=url)
         # `meta` is the Layer-B worker payload (PDF path/title/author, or url).
         # Attach it BEFORE submitting so the worker can never start and read an
         # unset `ingest_meta`.
